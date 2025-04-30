@@ -277,4 +277,4 @@ def run(workers: int = 1, start_port: int = 8000):
 
 
 if __name__ == '__main__':
-    run(workers=10)
+    run(workers=config.WEB_SERVER_WORKERS, start_port=config.WEB_SERVER_START_PORT)

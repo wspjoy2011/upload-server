@@ -20,6 +20,8 @@ class AppConfig(BaseSettings):
 
     Attributes:
         IMAGES_DIR (str): Directory path where uploaded images are stored.
+        WEB_SERVER_WORKERS (int): Number of worker processes to run for the HTTP server.
+        WEB_SERVER_START_PORT (int): Starting port number for worker processes.
         LOG_DIR (Path): Directory path where log files are saved.
         MAX_FILE_SIZE (int): Maximum allowed size of uploaded files (in bytes).
         SUPPORTED_FORMATS (set[str]): Set of allowed file extensions.
@@ -27,6 +29,8 @@ class AppConfig(BaseSettings):
 
     IMAGES_DIR: str
     LOG_DIR: Path
+    WEB_SERVER_WORKERS: int
+    WEB_SERVER_START_PORT: int
 
     MAX_FILE_SIZE: int = 1 * 1024 * 1024
     SUPPORTED_FORMATS: set[str] = {'.jpg', '.png', '.gif'}
