@@ -1,3 +1,13 @@
+"""Image file listing utility.
+
+This module provides functionality to scan the image upload directory
+and return metadata for each valid image file.
+
+Side effects:
+    - Reads the file system to access metadata (size, creation time) of files.
+    - Raises exceptions if the directory is missing or inaccessible.
+"""
+
 import os
 from datetime import datetime, UTC
 
@@ -5,7 +15,21 @@ from settings.config import config
 
 
 def list_uploaded_images() -> list[dict[str, str | int]]:
-    """Returns a list of image metadata (name, size, created_at) from the upload directory."""
+    """Scans the upload directory and returns metadata for valid image files.
+
+    Returns:
+        list[dict[str, str | int]]: A list of dictionaries, each containing:
+            - 'filename' (str): The name of the image file.
+            - 'created_at' (str): ISO-formatted creation timestamp (UTC).
+            - 'size' (int): Size of the file in bytes.
+
+    Raises:
+        FileNotFoundError: If the upload directory does not exist.
+        PermissionError: If the upload directory cannot be accessed.
+
+    Side effects:
+        - Reads the file system (os.listdir, os.path.getctime, os.path.getsize).
+    """
     files = []
 
     try:
