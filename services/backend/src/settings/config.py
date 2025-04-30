@@ -7,7 +7,7 @@ BASE_DIR = Path(__file__).parent.parent.parent
 
 class AppConfig(BaseSettings):
     IMAGES_DIR: str
-    LOG_DIR: str
+    LOG_DIR: Path
 
     MAX_FILE_SIZE: int = 1 * 1024 * 1024
     SUPPORTED_FORMATS: set[str] = {'.jpg', '.png', '.gif'}
