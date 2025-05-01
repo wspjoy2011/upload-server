@@ -187,7 +187,12 @@ class UploadHandler(BaseHTTPRequestHandler):
             self._send_json_error(e.status_code, e.message)
             return
 
-        saved_file_info = handle_uploaded_file(files[0])
+        try:
+            saved_file_info = handle_uploaded_file(files[0])
+        except APIError as e:
+            self._send_json_error(e.status_code, e.message)
+            return
+
         logger.info(f"File '{saved_file_info['filename']}' uploaded successfully.")
 
         self.send_response(200)

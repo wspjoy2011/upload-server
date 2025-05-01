@@ -58,10 +58,40 @@ All components are containerized and orchestrated via `docker-compose`.
 Clone the repository and start the containers:
 
 ```bash
-git clone <your-repo-url>
-cd image-hosting-server
+git clone https://github.com/wspjoy2011/upload-server.git
+cd upload-server
 docker-compose up --build
 ```
+
+Before running the server, configure the environment variables for the backend:
+
+1. Navigate to the backend service directory:
+   ```bash
+   cd services/backend
+   ```
+
+2. Copy the sample file and adjust the values as needed:
+   ```bash
+   cp .env.sample .env
+   ```
+
+3. Sample `.env.sample`:
+
+   ```env
+   # Directory where uploaded images will be stored 
+   IMAGES_DIR=/usr/src/images
+
+   # Directory where log files will be written
+   LOG_DIR=/var/log
+
+   # Number of worker processes to spawn for HTTP server
+   WEB_SERVER_WORKERS=10
+
+   # Starting port number for worker processes (each worker gets a unique port)
+   WEB_SERVER_START_PORT=8000
+   ```
+
+Make sure the `IMAGES_DIR` and `LOG_DIR` match the volume paths defined in `docker-compose.yml`.
 
 Then visit:  
 [http://localhost](http://localhost)
