@@ -15,25 +15,31 @@ Side effects:
     - Logs actions and errors via configured logger.
 """
 
-import json
 import os
 from multiprocessing import Process, current_process
 from typing import cast
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from logging import Logger
 
 from python_multipart import parse_form
 
+from db.dependencies import get_image_repository
+from db.dto import ImageDTO
 from exceptions.api_errors import APIError, MultipleFilesUploadError
+from exceptions.repository_errors import RepositoryError
 from handlers.files import list_uploaded_images
+from interfaces.pagination import InvalidPageNumberError, InvalidPerPageError
 from interfaces.protocols import RequestHandlerFactory
 from handlers.upload import handle_uploaded_file
+from mixins.pagination import PaginationMixin
 from settings.config import config
 from settings.logging_config import get_logger
+from mixins.http import RouterMixin, JsonResponseMixin
 
 logger = get_logger(__name__)
 
 
-class UploadHandler(BaseHTTPRequestHandler):
+class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, PaginationMixin):
     """Handles HTTP requests related to file uploads, listing, and deletion.
 
     Routes:
@@ -43,7 +49,7 @@ class UploadHandler(BaseHTTPRequestHandler):
         DELETE /upload/<filename> → Delete the specified image.
 
     Use:
-        - Dynamic dispatch based on `routes_get`, `routes_post`, and `routes_delete`.
+        - Dynamic dispatch based on routes defined in route dictionaries.
     """
 
     routes_get = {
@@ -59,101 +65,90 @@ class UploadHandler(BaseHTTPRequestHandler):
         "/upload/": "_handle_delete_upload",
     }
 
-    def _send_json_error(self, status_code: int, message: str) -> None:
-        """Sends a JSON error response and logs the message.
-
-        Args:
-            status_code (int): HTTP status code to return.
-            message (str): Error message to return and log.
-
-        Side effects:
-            - Logs the error or warning.
-            - Writes JSON response to the client.
-        """
-        if status_code >= 500:
-            logger.error(f"{self.command} {self.path} → {status_code}: {message}")
-        else:
-            logger.warning(f"{self.command} {self.path} → {status_code}: {message}")
-
-        self.send_response(status_code)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        response = {"detail": message}
-        self.wfile.write(json.dumps(response).encode())
+    @property
+    def logger(self) -> Logger:
+        """Return the application logger."""
+        return logger
 
     def do_GET(self):
         """Handles GET requests and dispatches them based on route."""
-        self._handle_request(self.routes_get)
+        self.handle_request(self.routes_get)
 
     def do_POST(self):
         """Handles POST requests and dispatches them based on route."""
-        self._handle_request(self.routes_post)
+        self.handle_request(self.routes_post)
 
     def do_DELETE(self):
         """Handles DELETE requests and dispatches them based on route."""
-        self._handle_request(self.routes_delete)
-
-    def _handle_request(self, routes: dict[str, str]) -> None:
-        """Resolves path to appropriate handler method and calls it.
-
-        Args:
-            routes (dict[str, str]): Mapping of path to handler method names.
-
-        Side effects:
-            - Calls appropriate handler method.
-            - Sends 404 or 500 response if handler is not found or not implemented.
-        """
-        handler_name = routes.get(self.path)
-        if not handler_name:
-            for route_prefix, candidate_handler in routes.items():
-                if self.path.startswith(route_prefix):
-                    handler_name = candidate_handler
-                    break
-
-        if not handler_name:
-            self._send_json_error(404, "Not Found")
-            return
-
-        handler = getattr(self, handler_name, None)
-        if not handler:
-            self._send_json_error(500, "Handler not implemented.")
-            return
-
-        handler()
+        self.handle_request(self.routes_delete)
 
     def _handle_get_root(self):
         """Handles healthcheck at GET /."""
         logger.info("Healthcheck endpoint hit: /")
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(json.dumps({"message": "Welcome to the Upload Server"}).encode())
+        self.send_json_response(200, {"message": "Welcome to the Upload Server"})
 
     def _handle_get_uploads(self):
         """Returns list of uploaded images as JSON.
+
+        Query parameters:
+        page (int, optional): Page number (starting from 1). Default is 1.
+        per_page (int, optional): Number of items per page. Default is 10.
 
         Side effects:
             - Reads image directory.
             - Sends HTTP response or error.
         """
+        query_params = self.parse_query_params()
+
         try:
-            files = list_uploaded_images()
-        except FileNotFoundError:
-            self._send_json_error(500, "Images directory not found.")
+            pagination_dto = self.parse_pagination(
+                query_params,
+                default_page=1,
+                default_per_page=10,
+                max_per_page=20
+            )
+            logger.info(
+                f"Requested images list with pagination: page={pagination_dto.page}, per_page={pagination_dto.per_page}"
+            )
+        except InvalidPageNumberError as e:
+            self.send_json_error(400, str(e))
             return
-        except PermissionError:
-            self._send_json_error(500, "Permission denied to access images directory.")
+        except InvalidPerPageError as e:
+            self.send_json_error(400, str(e))
             return
 
-        if not files:
-            self._send_json_error(404, "No images found.")
+        limit, offset = self.get_limit_offset(pagination_dto)
+
+        repository = get_image_repository()
+
+        total_count = repository.count()
+
+        if not total_count:
+            self.send_json_error(404, "No images found.")
             return
 
-        logger.info(f"Returned list of {len(files)} uploaded images.")
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(json.dumps(files).encode())
+        try:
+            images_dto = repository.list_all(limit, offset)
+        except RepositoryError as e:
+            logger.error(f"Failed to list images: {str(e)}")
+            self.send_json_error(500, f"Failed to list images: {str(e)}")
+        else:
+            response = {
+                "items": [image_dto.as_dict() for image_dto in images_dto],
+                "pagination": {
+                    "page": pagination_dto.page,
+                    "per_page": pagination_dto.per_page,
+                    "total": total_count,
+                    "pages": (total_count + pagination_dto.per_page - 1) // pagination_dto.per_page,
+                    "has_next": pagination_dto.page < (
+                                total_count + pagination_dto.per_page - 1) // pagination_dto.per_page,
+                    "has_previous": pagination_dto.page > 1
+                }
+            }
+            logger.info(
+                f"Returned {len(images_dto)} images (page {pagination_dto.page}"
+                f" of {(total_count + pagination_dto.per_page - 1) // pagination_dto.per_page})")
+            self.send_json_response(200, response)
 
     def _handle_post_upload(self):
         """Processes and saves an uploaded file.
@@ -161,11 +156,12 @@ class UploadHandler(BaseHTTPRequestHandler):
         Side effects:
             - Parses multipart form data.
             - Validates and saves uploaded file to disk.
+            - Saves file metadata to database.
             - Sends response or error.
         """
         content_type = self.headers.get("Content-Type", "")
         if "multipart/form-data" not in content_type:
-            self._send_json_error(400, "Bad Request: Expected multipart/form-data")
+            self.send_json_error(400, "Bad Request: Expected multipart/form-data")
             return
 
         content_length = int(self.headers.get("Content-Length", 0))
@@ -184,67 +180,87 @@ class UploadHandler(BaseHTTPRequestHandler):
         try:
             parse_form(headers, self.rfile, lambda _: None, on_file)  # type: ignore[arg-type]
         except APIError as e:
-            self._send_json_error(e.status_code, e.message)
+            self.send_json_error(e.status_code, e.message)
             return
 
         try:
             saved_file_info = handle_uploaded_file(files[0])
         except APIError as e:
-            self._send_json_error(e.status_code, e.message)
+            self.send_json_error(e.status_code, e.message)
             return
 
-        logger.info(f"File '{saved_file_info['filename']}' uploaded successfully.")
+        filename = saved_file_info["filename"]
+        original_name = files[0].file_name.decode("utf-8") if files[0].file_name else "uploaded_file"
+        files[0].file_object.seek(0, os.SEEK_END)
+        size = files[0].file_object.tell()
+        ext = os.path.splitext(filename)[1].lower()
 
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(
-            f'{{"filename": "{saved_file_info["filename"]}", '
-            f'"url": "{saved_file_info["url"]}"}}'.encode()
+        image_dto = ImageDTO(
+            filename=filename,
+            original_name=original_name,
+            size=size,
+            file_type=ext
         )
 
+        repository = get_image_repository()
+
+        try:
+            repository.create(image_dto)
+        except RepositoryError as e:
+            self.send_json_error(e.status_code, e.message)
+            return
+
+        logger.info(f"File '{filename}' uploaded successfully.")
+        self.send_json_response(200, {
+            "filename": filename,
+            "url": saved_file_info["url"]
+        })
+
     def _handle_delete_upload(self):
-        """Deletes a file by name from the upload directory.
+        """Deletes a file by name from the upload directory and database.
 
         Side effects:
             - Deletes file from filesystem.
+            - Deletes record from database.
             - Sends JSON response or error.
         """
-        if not self.path.startswith("/upload/"):
-            self._send_json_error(404, "Not Found")
-            return
-
-        filename = self.path[len("/upload/"):]
-
+        filename = self.extract_path_param("/upload/")
         if not filename:
-            self._send_json_error(400, "Filename not provided.")
+            self.send_json_error(400, "Filename not provided.")
             return
 
         filepath = os.path.join(config.IMAGES_DIR, filename)
         ext = os.path.splitext(filename)[1].lower()
 
         if ext not in config.SUPPORTED_FORMATS:
-            self._send_json_error(400, "Unsupported file format.")
+            self.send_json_error(400, "Unsupported file format.")
             return
 
         if not os.path.isfile(filepath):
-            self._send_json_error(404, "File not found.")
+            self.send_json_error(404, "File not found.")
+            return
+
+        repository = get_image_repository()
+        try:
+            db_deleted = repository.delete_by_filename(filename)
+            if not db_deleted:
+                logger.warning(f"File '{filename}' was not found in database while deleting")
+        except RepositoryError as e:
+            logger.error(f"Failed to delete file '{filename}' from database: {str(e)}")
+            self.send_json_error(e.status_code, e.message)
             return
 
         try:
             os.remove(filepath)
         except PermissionError:
-            self._send_json_error(500, "Permission denied to delete file.")
+            self.send_json_error(500, "Permission denied to delete file.")
             return
         except Exception as e:
-            self._send_json_error(500, f"Internal Server Error: {str(e)}")
+            self.send_json_error(500, f"Internal Server Error: {str(e)}")
             return
 
         logger.info(f"File '{filename}' deleted successfully.")
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(json.dumps({"message": f"File '{filename}' deleted successfully."}).encode())
+        self.send_json_response(200, {"message": f"File '{filename}' deleted successfully."})
 
 
 def run_server_on_port(port: int):

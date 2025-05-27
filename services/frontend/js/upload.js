@@ -61,7 +61,7 @@
      */
     const api = async (method, url, data, cfg = {}) => {
         try {
-            return await axios({ method, url, data, ...cfg });
+            return await axios({method, url, data, ...cfg});
         } catch (e) {
             throw {
                 status: e.response?.status ?? null,
@@ -98,8 +98,8 @@
             try {
                 const form = new FormData();
                 form.append('file', file);
-                const { data } = await api('post', API_UPLOAD_URL, form, {
-                    headers: { 'Content-Type': 'multipart/form-data' },
+                const {data} = await api('post', API_UPLOAD_URL, form, {
+                    headers: {'Content-Type': 'multipart/form-data'},
                 });
                 showStatus(uploadText, `File uploaded: ${data.filename}`);
                 resultInput.value = `${location.origin}${data.url}`;
@@ -171,31 +171,36 @@
             imgSection.querySelectorAll('.table-row, .no-images-msg').forEach(n => n.remove());
 
             try {
-                const { data: files } = await api('get', API_UPLOAD_URL);
+                const response = await api('get', API_UPLOAD_URL);
 
-                if (!files.length) {
+                const files = response.data.items || response.data;
+
+                if (!files || !files.length) {
                     tableHeader.style.display = 'none';
                     imgSection.appendChild(createMsg('No images yet.'));
                     return;
                 }
                 tableHeader.style.display = 'flex';
 
-                files.forEach(({ filename }) => {
+                files.forEach((file) => {
+                    const filename = file.filename || file;
+
                     const row = document.createElement('div');
                     row.className = 'table-row';
                     row.innerHTML = `
-                        <div class="file-name">
-                          <img src="${location.origin}/images/${filename}" alt="" class="file-icon" />
-                          <span>${filename}</span>
-                        </div>
-                        <div class="file-url">${location.origin}/images/${filename}</div>
-                        <div class="file-delete">
-                          <button class="delete-btn"><i class="fas fa-trash-alt"></i></button>
-                        </div>`;
+                <div class="file-name">
+                  <img src="${location.origin}/images/${filename}" alt="" class="file-icon" />
+                  <span>${filename}</span>
+                </div>
+                <div class="file-url">${location.origin}/images/${filename}</div>
+                <div class="file-delete">
+                  <button class="delete-btn"><i class="fas fa-trash-alt"></i></button>
+                </div>`;
                     row.querySelector('.delete-btn')
                         .addEventListener('click', () => deleteImage(filename, row));
                     imgSection.appendChild(row);
                 });
+
             } catch (e) {
                 tableHeader.style.display = 'none';
                 if (e.status === 404) {

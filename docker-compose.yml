@@ -5,7 +5,7 @@ services:
       context: services/backend
       dockerfile: Dockerfile
     container_name: upload-server
-    command: [ "python", "app.py" ]
+    command: [ "python", "run.py" ]
     env_file:
       - services/backend/.env
       - ./services/pgbouncer/.env
