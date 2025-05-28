@@ -1,7 +1,7 @@
 /**
  * Image-host front-end logic
  * - Upload via button or drag-&-drop
- * - List uploaded images
+ * - List uploaded images as cards
  * - Delete images
  */
 (() => {
@@ -19,8 +19,8 @@
         uploadText: '.upload-main-text, .upload-error',
         dropArea: '#dropArea',
         imgSection: '#images-tab',
-        tableHeader: '.table-header',
         imgTabBtn: '.tab[data-tab="images"]',
+        imageGallery: '.image-gallery'
     };
 
     const $ = (s) => document.querySelector(s);
@@ -38,20 +38,6 @@
     };
 
     /**
-     * Create a paragraph DOM element to show status/info.
-     * @param {string} txt - Text to display.
-     * @param {string} [col='#555'] - Text color.
-     * @returns {HTMLParagraphElement}
-     */
-    const createMsg = (txt, col = '#555') => {
-        const p = document.createElement('p');
-        p.textContent = txt;
-        p.className = 'no-images-msg';
-        p.style.cssText = `text-align:center;color:${col}`;
-        return p;
-    };
-
-    /**
      * Perform API request with Axios.
      * @param {'get'|'post'|'delete'} method - HTTP method.
      * @param {string} url - API endpoint URL.
@@ -63,11 +49,29 @@
         try {
             return await axios({method, url, data, ...cfg});
         } catch (e) {
-            throw {
+            const error = {
                 status: e.response?.status ?? null,
                 message: e.response?.data?.detail || e.message || 'Unknown error',
             };
+
+            if (method.toLowerCase() === 'get' && url === API_UPLOAD_URL && error.status === 404) {
+                return {data: []};
+            }
+
+            throw error;
         }
+    };
+
+    /**
+     * Copy text to clipboard and show feedback
+     * @param {string} text - Text to copy
+     * @param {HTMLElement} button - Button to show feedback on
+     * @param {string} originalText - Button's original text to restore
+     */
+    const copyToClipboard = async (text, button, originalText) => {
+        await navigator.clipboard.writeText(text);
+        button.textContent = 'Copied!';
+        setTimeout(() => (button.textContent = originalText), 1500);
     };
 
     /**
@@ -115,11 +119,9 @@
             fileInput.value = '';
         });
 
-        copyBtn.addEventListener('click', async () => {
+        copyBtn.addEventListener('click', () => {
             if (!resultInput.value) return;
-            await navigator.clipboard.writeText(resultInput.value);
-            copyBtn.textContent = 'Copied!';
-            setTimeout(() => (copyBtn.textContent = 'COPY'), 1500);
+            copyToClipboard(resultInput.value, copyBtn, 'COPY');
         });
 
         const prevent = (e) => e.preventDefault();
@@ -141,23 +143,24 @@
      */
     function initImagesTab() {
         const imgSection = $(SEL.imgSection);
-        const tableHeader = $(SEL.tableHeader);
         const imgTabBtn = $(SEL.imgTabBtn);
-        if (!imgSection || !tableHeader || !imgTabBtn) return;
+        const imgGallery = imgSection?.querySelector(SEL.imageGallery);
+
+        if (!imgSection || !imgGallery || !imgTabBtn) return;
 
         /**
          * Delete a specific image by filename.
          * @param {string} filename - Name of file to delete.
-         * @param {HTMLElement} row - DOM row to remove.
+         * @param {HTMLElement} card - DOM card to remove.
          */
-        const deleteImage = async (filename, row) => {
+        const deleteImage = async (filename, card) => {
             if (!confirm(`Delete "${filename}"?`)) return;
             try {
                 await api('delete', API_DELETE_URL(filename));
-                row.remove();
-                if (!imgSection.querySelector('.table-row')) {
-                    tableHeader.style.display = 'none';
-                    imgSection.appendChild(createMsg('No images yet.'));
+                card.remove();
+
+                if (!imgGallery.querySelector('.image-card')) {
+                    imgGallery.innerHTML = '<p class="no-images-msg">No images uploaded yet.</p>';
                 }
             } catch (e) {
                 alert(`Delete failed: ${e.message}`);
@@ -165,50 +168,68 @@
         };
 
         /**
-         * Load and display the list of uploaded images.
+         * Create image card element for gallery
+         * @param {string} filename - Image filename
+         * @returns {HTMLDivElement} Card element
+         */
+        const createImageCard = (filename) => {
+            const imageUrl = `${location.origin}/images/${filename}`;
+
+            const card = document.createElement('div');
+            card.className = 'image-card';
+            card.innerHTML = `
+                <div class="image-card-preview">
+                    <img src="${imageUrl}" alt="${filename}" loading="lazy" />
+                </div>
+                <div class="image-card-info">
+                    <h3 class="image-card-title" title="${filename}">${filename}</h3>
+                    <p class="image-card-url" title="${imageUrl}">${imageUrl}</p>
+                    <div class="image-card-actions">
+                        <button class="copy-url-btn">Copy URL</button>
+                        <button class="card-delete-btn" aria-label="Delete image">
+                            <i class="fas fa-trash-alt"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            card.querySelector('.copy-url-btn').addEventListener('click', () =>
+                copyToClipboard(imageUrl, card.querySelector('.copy-url-btn'), 'Copy URL')
+            );
+
+            card.querySelector('.card-delete-btn').addEventListener('click', () =>
+                deleteImage(filename, card)
+            );
+
+            return card;
+        };
+
+        /**
+         * Load and display the list of uploaded images as cards.
          */
         const loadImages = async () => {
-            imgSection.querySelectorAll('.table-row, .no-images-msg').forEach(n => n.remove());
+            imgGallery.innerHTML = '';
 
             try {
                 const response = await api('get', API_UPLOAD_URL);
-
                 const files = response.data.items || response.data;
 
                 if (!files || !files.length) {
-                    tableHeader.style.display = 'none';
-                    imgSection.appendChild(createMsg('No images yet.'));
+                    imgGallery.innerHTML = '<p class="no-images-msg">No images uploaded yet.</p>';
                     return;
                 }
-                tableHeader.style.display = 'flex';
 
+                const fragment = document.createDocumentFragment();
                 files.forEach((file) => {
                     const filename = file.filename || file;
-
-                    const row = document.createElement('div');
-                    row.className = 'table-row';
-                    row.innerHTML = `
-                <div class="file-name">
-                  <img src="${location.origin}/images/${filename}" alt="" class="file-icon" />
-                  <span>${filename}</span>
-                </div>
-                <div class="file-url">${location.origin}/images/${filename}</div>
-                <div class="file-delete">
-                  <button class="delete-btn"><i class="fas fa-trash-alt"></i></button>
-                </div>`;
-                    row.querySelector('.delete-btn')
-                        .addEventListener('click', () => deleteImage(filename, row));
-                    imgSection.appendChild(row);
+                    const card = createImageCard(filename);
+                    fragment.appendChild(card);
                 });
 
+                imgGallery.appendChild(fragment);
             } catch (e) {
-                tableHeader.style.display = 'none';
-                if (e.status === 404) {
-                    imgSection.appendChild(createMsg('No images yet.'));
-                } else {
-                    imgSection.appendChild(createMsg(`Error: ${e.message}`, '#FF0000'));
-                    console.error('Images load error ⇒', e.message);
-                }
+                imgGallery.innerHTML = `<p class="no-images-msg" style="color: #FF0000">Error loading images: ${e.message}</p>`;
+                console.error('Images load error =>', e.message);
             }
         };
 
@@ -217,6 +238,8 @@
     }
 
     // Initialize modules
-    initUploader();
-    initImagesTab();
+    document.addEventListener('DOMContentLoaded', () => {
+        initUploader();
+        initImagesTab();
+    });
 })();
