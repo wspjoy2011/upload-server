@@ -15,7 +15,6 @@ Side effects:
     - Logs actions and errors via configured logger.
 """
 
-import os
 from multiprocessing import Process, current_process
 from typing import cast
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -25,12 +24,11 @@ from python_multipart import parse_form
 
 from db.dependencies import get_image_repository
 from db.dto import ImageDTO
-from exceptions.api_errors import APIError, MultipleFilesUploadError
+from exceptions.api_errors import APIError
 from exceptions.repository_errors import RepositoryError
-from handlers.files import list_uploaded_images
+from handlers.dependencies import get_file_handler
 from interfaces.pagination import InvalidPageNumberError, InvalidPerPageError
 from interfaces.protocols import RequestHandlerFactory
-from handlers.upload import handle_uploaded_file
 from mixins.pagination import PaginationMixin
 from settings.config import config
 from settings.logging_config import get_logger
@@ -141,7 +139,7 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
                     "total": total_count,
                     "pages": (total_count + pagination_dto.per_page - 1) // pagination_dto.per_page,
                     "has_next": pagination_dto.page < (
-                                total_count + pagination_dto.per_page - 1) // pagination_dto.per_page,
+                            total_count + pagination_dto.per_page - 1) // pagination_dto.per_page,
                     "has_previous": pagination_dto.page > 1
                 }
             }
@@ -171,35 +169,30 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
         }
 
         files = []
-
-        def on_file(file):
-            if len(files) >= 1:
-                raise MultipleFilesUploadError()
-            files.append(file)
+        file_handler = get_file_handler()
 
         try:
-            parse_form(headers, self.rfile, lambda _: None, on_file)  # type: ignore[arg-type]
+            on_file_callback = file_handler.get_file_collector(files)
+            parse_form(headers, self.rfile, lambda _: None, on_file_callback)  # type: ignore[arg-type]
         except APIError as e:
             self.send_json_error(e.status_code, e.message)
             return
 
+        if not files:
+            self.send_json_error(400, "No files uploaded")
+            return
+
         try:
-            saved_file_info = handle_uploaded_file(files[0])
+            uploaded_file_dto = file_handler.handle_upload(files[0])
         except APIError as e:
             self.send_json_error(e.status_code, e.message)
             return
-
-        filename = saved_file_info["filename"]
-        original_name = files[0].file_name.decode("utf-8") if files[0].file_name else "uploaded_file"
-        files[0].file_object.seek(0, os.SEEK_END)
-        size = files[0].file_object.tell()
-        ext = os.path.splitext(filename)[1].lower()
 
         image_dto = ImageDTO(
-            filename=filename,
-            original_name=original_name,
-            size=size,
-            file_type=ext
+            filename=uploaded_file_dto.filename,
+            original_name=uploaded_file_dto.original_name,
+            size=uploaded_file_dto.size,
+            file_type=uploaded_file_dto.extension
         )
 
         repository = get_image_repository()
@@ -210,10 +203,10 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
             self.send_json_error(e.status_code, e.message)
             return
 
-        logger.info(f"File '{filename}' uploaded successfully.")
+        logger.info(f"File '{uploaded_file_dto.filename}' uploaded successfully.")
         self.send_json_response(200, {
-            "filename": filename,
-            "url": saved_file_info["url"]
+            "filename": uploaded_file_dto.filename,
+            "url": uploaded_file_dto.url
         })
 
     def _handle_delete_upload(self):
@@ -229,15 +222,11 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
             self.send_json_error(400, "Filename not provided.")
             return
 
-        filepath = os.path.join(config.IMAGES_DIR, filename)
-        ext = os.path.splitext(filename)[1].lower()
-
-        if ext not in config.SUPPORTED_FORMATS:
-            self.send_json_error(400, "Unsupported file format.")
-            return
-
-        if not os.path.isfile(filepath):
-            self.send_json_error(404, "File not found.")
+        file_handler = get_file_handler()
+        try:
+            file_handler.delete_file(filename)
+        except APIError as e:
+            self.send_json_error(e.status_code, e.message)
             return
 
         repository = get_image_repository()
@@ -248,15 +237,6 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
         except RepositoryError as e:
             logger.error(f"Failed to delete file '{filename}' from database: {str(e)}")
             self.send_json_error(e.status_code, e.message)
-            return
-
-        try:
-            os.remove(filepath)
-        except PermissionError:
-            self.send_json_error(500, "Permission denied to delete file.")
-            return
-        except Exception as e:
-            self.send_json_error(500, f"Internal Server Error: {str(e)}")
             return
 
         logger.info(f"File '{filename}' deleted successfully.")
