@@ -1,7 +1,7 @@
 /**
  * Image-host front-end logic
  * - Upload via button or drag-&-drop
- * - List uploaded images as cards
+ * - List uploaded images as cards with pagination
  * - Delete images
  */
 (() => {
@@ -11,6 +11,16 @@
     const API_UPLOAD_URL = `${location.origin}/api/upload/`;
     const API_DELETE_URL = (fn) => `${location.origin}/api/upload/${encodeURIComponent(fn)}`;
 
+    const LS_KEYS = {
+        PER_PAGE: 'image_host_per_page',
+        ACTIVE_TAB: 'image_host_active_tab'
+    };
+
+    const DEFAULT_PAGE = 1;
+    const DEFAULT_PER_PAGE = 8;
+    const AVAILABLE_PER_PAGE = [4, 8, 12];
+    const DEFAULT_TAB = 'upload';
+
     const SEL = {
         uploadBtn: '#uploadBtn',
         fileInput: '#fileInput',
@@ -19,11 +29,51 @@
         uploadText: '.upload-main-text, .upload-error',
         dropArea: '#dropArea',
         imgSection: '#images-tab',
+        uploadSection: '#upload-tab',
         imgTabBtn: '.tab[data-tab="images"]',
-        imageGallery: '.image-gallery'
+        uploadTabBtn: '.tab[data-tab="upload"]',
+        allTabs: '.tab',
+        allTabContent: '.tab-content',
+        imageGallery: '.image-gallery',
+        prevPageBtn: '#prevPage',
+        nextPageBtn: '#nextPage',
+        currentPageSpan: '#currentPage',
+        totalPagesSpan: '#totalPages',
+        perPageSelect: '#perPageSelect'
     };
 
     const $ = (s) => document.querySelector(s);
+    const $$ = (s) => document.querySelectorAll(s);
+
+    let loadImagesFunction = null;
+
+    const getSavedPerPage = () => {
+        const saved = localStorage.getItem(LS_KEYS.PER_PAGE);
+        if (saved && AVAILABLE_PER_PAGE.includes(parseInt(saved))) {
+            return parseInt(saved);
+        }
+        return DEFAULT_PER_PAGE;
+    };
+
+    const savePerPage = (perPage) => {
+        localStorage.setItem(LS_KEYS.PER_PAGE, perPage.toString());
+    };
+
+    const getSavedActiveTab = () => {
+        const savedTab = localStorage.getItem(LS_KEYS.ACTIVE_TAB);
+        return savedTab || DEFAULT_TAB;
+    };
+
+    const saveActiveTab = (tab) => {
+        localStorage.setItem(LS_KEYS.ACTIVE_TAB, tab);
+    };
+
+    const paginationState = {
+        currentPage: DEFAULT_PAGE,
+        perPage: getSavedPerPage(),
+        totalPages: 1,
+        totalItems: 0
+    };
 
     /**
      * Display status message in upload text area.
@@ -54,8 +104,8 @@
                 message: e.response?.data?.detail || e.message || 'Unknown error',
             };
 
-            if (method.toLowerCase() === 'get' && url === API_UPLOAD_URL && error.status === 404) {
-                return {data: []};
+            if (method.toLowerCase() === 'get' && url.startsWith(API_UPLOAD_URL) && error.status === 404) {
+                return {data: {items: [], pagination: {total: 0, pages: 0}}};
             }
 
             throw error;
@@ -73,6 +123,53 @@
         button.textContent = 'Copied!';
         setTimeout(() => (button.textContent = originalText), 1500);
     };
+
+    /**
+     * Initialize tabs functionality with localStorage support
+     */
+    function initTabs() {
+        const tabs = $$(SEL.allTabs);
+        const tabContents = $$(SEL.allTabContent);
+
+        if (!tabs.length || !tabContents.length) return;
+
+        const activeTabId = getSavedActiveTab();
+
+        const activateTab = (tabId) => {
+            tabContents.forEach(content => content.classList.add('hidden'));
+            tabs.forEach(tab => {
+                tab.classList.remove('active');
+                tab.classList.add('inactive');
+            });
+
+            const targetContent = $(`#${tabId}-tab`);
+            const targetTab = $(`.tab[data-tab="${tabId}"]`);
+
+            if (targetContent) targetContent.classList.remove('hidden');
+            if (targetTab) {
+                targetTab.classList.add('active');
+                targetTab.classList.remove('inactive');
+            }
+
+            if (tabId === 'images' && loadImagesFunction) {
+                loadImagesFunction();
+            }
+        };
+
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabId = tab.getAttribute('data-tab');
+                if (tabId) {
+                    activateTab(tabId);
+                    saveActiveTab(tabId);
+                }
+            });
+        });
+
+        window.activateTabOnLoad = () => {
+            activateTab(activeTabId);
+        };
+    }
 
     /**
      * Initialize upload functionality.
@@ -145,8 +242,26 @@
         const imgSection = $(SEL.imgSection);
         const imgTabBtn = $(SEL.imgTabBtn);
         const imgGallery = imgSection?.querySelector(SEL.imageGallery);
+        const prevPageBtn = $(SEL.prevPageBtn);
+        const nextPageBtn = $(SEL.nextPageBtn);
+        const currentPageSpan = $(SEL.currentPageSpan);
+        const totalPagesSpan = $(SEL.totalPagesSpan);
+        const perPageSelect = $(SEL.perPageSelect);
 
-        if (!imgSection || !imgGallery || !imgTabBtn) return;
+        if (!imgSection || !imgGallery || !imgTabBtn || !perPageSelect) return;
+
+        perPageSelect.value = paginationState.perPage.toString();
+
+        /**
+         * Update pagination UI elements
+         */
+        const updatePaginationUI = () => {
+            currentPageSpan.textContent = paginationState.currentPage;
+            totalPagesSpan.textContent = paginationState.totalPages || 1;
+
+            prevPageBtn.disabled = paginationState.currentPage <= 1;
+            nextPageBtn.disabled = paginationState.currentPage >= paginationState.totalPages;
+        };
 
         /**
          * Delete a specific image by filename.
@@ -159,8 +274,20 @@
                 await api('delete', API_DELETE_URL(filename));
                 card.remove();
 
-                if (!imgGallery.querySelector('.image-card')) {
+                paginationState.totalItems--;
+                paginationState.totalPages = Math.max(
+                    1,
+                    Math.ceil(paginationState.totalItems / paginationState.perPage)
+                );
+
+                if (!imgGallery.querySelector('.image-card') && paginationState.currentPage > 1) {
+                    paginationState.currentPage--;
+                    loadImages();
+                } else if (!imgGallery.querySelector('.image-card')) {
                     imgGallery.innerHTML = '<p class="no-images-msg">No images uploaded yet.</p>';
+                    updatePaginationUI();
+                } else {
+                    updatePaginationUI();
                 }
             } catch (e) {
                 alert(`Delete failed: ${e.message}`);
@@ -169,11 +296,12 @@
 
         /**
          * Create image card element for gallery
-         * @param {string} filename - Image filename
+         * @param {object} image - Image object with filename and other properties
          * @returns {HTMLDivElement} Card element
          */
-        const createImageCard = (filename) => {
-            const imageUrl = `${location.origin}/images/${filename}`;
+        const createImageCard = (image) => {
+            const filename = image.filename;
+            const imageUrl = `${location.origin}${image.url || '/images/' + filename}`;
 
             const card = document.createElement('div');
             card.className = 'image-card';
@@ -205,41 +333,95 @@
         };
 
         /**
-         * Load and display the list of uploaded images as cards.
+         * Load and display the list of uploaded images as cards with pagination.
          */
         const loadImages = async () => {
-            imgGallery.innerHTML = '';
+            imgGallery.innerHTML = '<div class="loading-spinner-container"><div class="loading-spinner"><i class="fas fa-spinner fa-pulse fa-4x"></i></div></div>';
+
+            const paginationControls = $('.pagination-controls');
+            if (paginationControls) {
+                paginationControls.classList.add('hidden');
+            }
 
             try {
-                const response = await api('get', API_UPLOAD_URL);
-                const files = response.data.items || response.data;
+                const url = `${API_UPLOAD_URL}?page=${paginationState.currentPage}&per_page=${paginationState.perPage}`;
+                const response = await api('get', url);
+                const data = response.data;
+
+                const files = data.items || data;
+                const pagination = data.pagination || {};
+
+                imgGallery.innerHTML = '';
+
+                paginationState.totalItems = pagination.total || files.length;
+                paginationState.totalPages = pagination.pages || Math.ceil(files.length / paginationState.perPage) || 1;
 
                 if (!files || !files.length) {
                     imgGallery.innerHTML = '<p class="no-images-msg">No images uploaded yet.</p>';
+                    updatePaginationUI();
+
+                    if (paginationControls) {
+                        paginationControls.classList.remove('hidden');
+                    }
+
                     return;
                 }
 
                 const fragment = document.createDocumentFragment();
                 files.forEach((file) => {
-                    const filename = file.filename || file;
-                    const card = createImageCard(filename);
+                    const fileObj = typeof file === 'string' ? {filename: file} : file;
+                    const card = createImageCard(fileObj);
                     fragment.appendChild(card);
                 });
 
                 imgGallery.appendChild(fragment);
+                updatePaginationUI();
+
+                if (paginationControls) {
+                    paginationControls.classList.remove('hidden');
+                }
+
             } catch (e) {
                 imgGallery.innerHTML = `<p class="no-images-msg" style="color: #FF0000">Error loading images: ${e.message}</p>`;
                 console.error('Images load error =>', e.message);
             }
         };
 
-        if (imgTabBtn.classList.contains('active')) loadImages();
-        imgTabBtn.addEventListener('click', loadImages);
+        perPageSelect.addEventListener('change', () => {
+            const newPerPage = parseInt(perPageSelect.value);
+            if (AVAILABLE_PER_PAGE.includes(newPerPage) && newPerPage !== paginationState.perPage) {
+                paginationState.perPage = newPerPage;
+                paginationState.currentPage = 1;
+                savePerPage(newPerPage);
+                loadImages();
+            }
+        });
+
+        prevPageBtn.addEventListener('click', () => {
+            if (paginationState.currentPage > 1) {
+                paginationState.currentPage--;
+                loadImages();
+            }
+        });
+
+        nextPageBtn.addEventListener('click', () => {
+            if (paginationState.currentPage < paginationState.totalPages) {
+                paginationState.currentPage++;
+                loadImages();
+            }
+        });
+
+        loadImagesFunction = loadImages;
     }
 
     // Initialize modules
     document.addEventListener('DOMContentLoaded', () => {
+        initTabs();
         initUploader();
         initImagesTab();
+
+        if (window.activateTabOnLoad) {
+            window.activateTabOnLoad();
+        }
     });
 })();

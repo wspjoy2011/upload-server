@@ -13,10 +13,13 @@ class PaginationMixin:
     - Return a standardized PaginationDTO
     """
 
-    def parse_pagination(self, query_params: Dict[str, str],
-                         default_page: int = 1,
-                         default_per_page: int = 10,
-                         max_per_page: Optional[int] = None) -> PaginationDTO:
+    def parse_pagination(
+            self,
+            query_params: Dict[str, str],
+            default_page: int = 1,
+            default_per_page: int = 10,
+            max_per_page: Optional[int] = None
+    ) -> PaginationDTO:
         """Parse and validate pagination parameters from query parameters.
 
         Args:

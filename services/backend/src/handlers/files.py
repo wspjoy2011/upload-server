@@ -44,10 +44,12 @@ class FileHandler(FileHandlerInterface):
         _supported_formats: List of allowed file extensions.
     """
 
-    def __init__(self,
-                 images_dir: str = config.IMAGES_DIR,
-                 max_file_size: int = config.MAX_FILE_SIZE,
-                 supported_formats: set[str] = config.SUPPORTED_FORMATS):
+    def __init__(
+            self,
+            images_dir: str = config.IMAGES_DIR,
+            max_file_size: int = config.MAX_FILE_SIZE,
+            supported_formats: set[str] = config.SUPPORTED_FORMATS
+    ):
         """Initialize the FileService with configuration.
 
         Args:

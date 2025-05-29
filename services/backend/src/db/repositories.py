@@ -230,7 +230,7 @@ class PostgresImageRepository(ImageRepository):
 
                     return [
                         ImageDetailsDTO(
-                            id=row[0],
+                            id=int(row[0]),
                             filename=row[1],
                             original_name=row[2],
                             size=row[3],
