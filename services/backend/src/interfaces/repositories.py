@@ -86,18 +86,20 @@ class ImageRepository(ABC):
         pass
 
     @abstractmethod
-    def list_all(self, limit: int = 10, offset: int = 0) -> List[ImageDetailsDTO]:
-        """List images with pagination.
+    def list_all(self, limit: int = 10, offset: int = 0, order: str = "desc") -> List[ImageDetailsDTO]:
+        """List images with pagination and sorting.
 
         Args:
-            limit (int): Maximum number of images to return.
-            offset (int): Number of images to skip.
+            limit (int, optional): Maximum number of images to return. Defaults to 10.
+            offset (int, optional): Number of images to skip. Defaults to 0.
+            order (str, optional): Sort order for upload_time ("desc" or "asc"). Defaults to "desc".
 
         Returns:
-            List[ImageDetailsDTO]: A list of image data.
+            List[ImageDetailsDTO]: List of image data.
 
         Raises:
-            QueryExecutionError: If the listing operation fails.
+            QueryExecutionError: If query execution fails.
+            ValueError: If order parameter is not "desc" or "asc".
         """
         pass
 

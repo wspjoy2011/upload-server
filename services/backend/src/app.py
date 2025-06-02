@@ -91,6 +91,7 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
         Query parameters:
         page (int, optional): Page number (starting from 1). Default is 1.
         per_page (int, optional): Number of items per page. Default is 10.
+        order (str, optional): Sort order for upload_time ("desc" or "asc"). Default is "desc".
 
         Side effects:
             - Reads image directory.
@@ -115,6 +116,11 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
             self.send_json_error(400, str(e))
             return
 
+        order = query_params.get("order", "desc").lower()
+        if order not in ("desc", "asc"):
+            self.send_json_error(400, "Order parameter must be 'desc' or 'asc'")
+            return
+
         limit, offset = self.get_limit_offset(pagination_dto)
 
         repository = get_image_repository()
@@ -126,10 +132,13 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
             return
 
         try:
-            images_dto = repository.list_all(limit, offset)
+            images_dto = repository.list_all(limit, offset, order)
         except RepositoryError as e:
             logger.error(f"Failed to list images: {str(e)}")
             self.send_json_error(500, f"Failed to list images: {str(e)}")
+        except ValueError as e:
+            logger.error(f"Invalid order parameter: {str(e)}")
+            self.send_json_error(400, str(e))
         else:
             response = {
                 "items": [image_dto.as_dict() for image_dto in images_dto],
@@ -145,7 +154,7 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
             }
             logger.info(
                 f"Returned {len(images_dto)} images (page {pagination_dto.page}"
-                f" of {(total_count + pagination_dto.per_page - 1) // pagination_dto.per_page})")
+                f" of {(total_count + pagination_dto.per_page - 1) // pagination_dto.per_page}, order={order})")
             self.send_json_response(200, response)
 
     def _handle_post_upload(self):

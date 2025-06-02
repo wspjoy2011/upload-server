@@ -203,25 +203,31 @@ class PostgresImageRepository(ImageRepository):
         except PsycopgError as e:
             raise EntityDeletionError("Image", filename, str(e))
 
-    def list_all(self, limit: int = 10, offset: int = 0) -> List[ImageDetailsDTO]:
-        """List images with pagination.
+    def list_all(self, limit: int = 10, offset: int = 0, order: str = "desc") -> List[ImageDetailsDTO]:
+        """List images with pagination and sorting.
 
         Args:
-            limit (int, optional): Maximum number of images to return. Defaults to 100.
+            limit (int, optional): Maximum number of images to return. Defaults to 10.
             offset (int, optional): Number of images to skip. Defaults to 0.
+            order (str, optional): Sort order for upload_time ("desc" or "asc"). Defaults to "desc".
 
         Returns:
             List[ImageDetailsDTO]: List of image data.
 
         Raises:
             QueryExecutionError: If query execution fails.
+            ValueError: If order parameter is not "desc" or "asc".
         """
-        query = """
+        if order.lower() not in ("desc", "asc"):
+            raise ValueError("Order parameter must be 'desc' or 'asc'")
+
+        query = f"""
             SELECT id, filename, original_name, size, upload_time, file_type::text
             FROM images
-            ORDER BY upload_time DESC
+            ORDER BY upload_time {order.upper()}
             LIMIT %s OFFSET %s
         """
+
         try:
             with self._pool.connection() as conn:
                 with conn.cursor() as cur:
