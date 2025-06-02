@@ -52,6 +52,8 @@
 
     let loadImagesFunction = null;
 
+    console.log('[INIT] Script started, location:', location.href);
+
     const getSavedPerPage = () => {
         const saved = localStorage.getItem(LS_KEYS.PER_PAGE);
         if (saved && AVAILABLE_PER_PAGE.includes(parseInt(saved))) {
@@ -61,15 +63,18 @@
     };
 
     const savePerPage = (perPage) => {
+        console.log('[savePerPage] Saving perPage to localStorage:', perPage);
         localStorage.setItem(LS_KEYS.PER_PAGE, perPage.toString());
     };
 
     const getSavedActiveTab = () => {
         const savedTab = localStorage.getItem(LS_KEYS.ACTIVE_TAB);
+        console.log('[getSavedActiveTab] Retrieved from localStorage:', savedTab);
         return savedTab || DEFAULT_TAB;
     };
 
     const saveActiveTab = (tab) => {
+        console.log('[saveActiveTab] Saving to localStorage:', tab);
         localStorage.setItem(LS_KEYS.ACTIVE_TAB, tab);
     };
 
@@ -82,6 +87,7 @@
     };
 
     const saveSortOrder = (sortOrder) => {
+        console.log('[saveSortOrder] Saving sortOrder to localStorage:', sortOrder);
         localStorage.setItem(LS_KEYS.SORT_ORDER, sortOrder);
     };
 
@@ -92,7 +98,9 @@
      */
     const getUrlParam = (paramName) => {
         const urlParams = new URLSearchParams(window.location.search);
-        return urlParams.get(paramName);
+        const value = urlParams.get(paramName);
+        console.log(`[getUrlParam] ${paramName} = ${value}`);
+        return value;
     };
 
     /**
@@ -101,6 +109,7 @@
      * @param {string} value - Parameter value
      */
     const updateUrlParam = (paramName, value) => {
+        console.log(`[updateUrlParam] Setting ${paramName} = ${value}`);
         const url = new URL(window.location);
         url.searchParams.set(paramName, value);
         window.history.replaceState({}, '', url);
@@ -111,6 +120,7 @@
      * @param {string} paramName - Parameter name to remove
      */
     const removeUrlParam = (paramName) => {
+        console.log(`[removeUrlParam] Removing ${paramName}`);
         const url = new URL(window.location);
         url.searchParams.delete(paramName);
         window.history.replaceState({}, '', url);
@@ -123,6 +133,7 @@
      * @param {string} order - Sort order
      */
     const updatePaginationUrlParams = (page, perPage, order) => {
+        console.log(`[updatePaginationUrlParams] page=${page}, perPage=${perPage}, order=${order}`);
         const url = new URL(window.location);
         url.searchParams.set('page', page.toString());
         url.searchParams.set('per_page', perPage.toString());
@@ -134,6 +145,7 @@
      * Remove pagination-related URL parameters
      */
     const removePaginationUrlParams = () => {
+        console.log('[removePaginationUrlParams] Removing pagination params');
         const url = new URL(window.location);
         url.searchParams.delete('page');
         url.searchParams.delete('per_page');
@@ -145,6 +157,8 @@
      * Initialize pagination state from URL parameters
      */
     const initPaginationFromUrl = () => {
+        console.log('[initPaginationFromUrl] Starting, current state:', paginationState);
+
         const urlPage = getUrlParam('page');
         const urlPerPage = getUrlParam('per_page');
         const urlOrder = getUrlParam('order');
@@ -153,6 +167,7 @@
             const pageNum = parseInt(urlPage);
             if (pageNum > 0) {
                 paginationState.currentPage = pageNum;
+                console.log('[initPaginationFromUrl] Set page from URL:', pageNum);
             }
         }
 
@@ -160,12 +175,16 @@
             const perPageNum = parseInt(urlPerPage);
             if (AVAILABLE_PER_PAGE.includes(perPageNum)) {
                 paginationState.perPage = perPageNum;
+                console.log('[initPaginationFromUrl] Set perPage from URL:', perPageNum);
             }
         }
 
         if (urlOrder && VALID_SORT_ORDERS.includes(urlOrder)) {
             paginationState.sortOrder = urlOrder;
+            console.log('[initPaginationFromUrl] Set sortOrder from URL:', urlOrder);
         }
+
+        console.log('[initPaginationFromUrl] Final state:', paginationState);
     };
 
     /**
@@ -175,14 +194,17 @@
     const getTabToActivate = () => {
         const urlTab = getUrlParam('tab');
         if (urlTab && VALID_TABS.includes(urlTab)) {
+            console.log('[getTabToActivate] Using tab from URL:', urlTab);
             return urlTab;
         }
 
         const savedTab = getSavedActiveTab();
         if (VALID_TABS.includes(savedTab)) {
+            console.log('[getTabToActivate] Using tab from localStorage:', savedTab);
             return savedTab;
         }
 
+        console.log('[getTabToActivate] Using default tab:', DEFAULT_TAB);
         return DEFAULT_TAB;
     };
 
@@ -194,6 +216,8 @@
         sortOrder: getSavedSortOrder()
     };
 
+    console.log('[INIT] Initial pagination state:', paginationState);
+
     /**
      * Display status message in upload text area.
      * @param {HTMLElement} el - Element to display message in.
@@ -201,6 +225,7 @@
      * @param {boolean} [isErr=false] - Whether it's an error message.
      */
     const showStatus = (el, msg, isErr = false) => {
+        console.log(`[showStatus] ${isErr ? 'ERROR' : 'INFO'}: ${msg}`);
         el.classList.toggle('upload-error', isErr);
         el.classList.toggle('upload-main-text', !isErr);
         el.textContent = msg;
@@ -215,15 +240,20 @@
      * @returns {Promise<any>}
      */
     const api = async (method, url, data, cfg = {}) => {
+        console.log(`[API] ${method.toUpperCase()} request to:`, url);
         try {
-            return await axios({method, url, data, ...cfg});
+            const response = await axios({method, url, data, ...cfg});
+            console.log(`[API] ${method.toUpperCase()} response:`, response.data);
+            return response;
         } catch (e) {
+            console.error(`[API] ${method.toUpperCase()} error:`, e);
             const error = {
                 status: e.response?.status ?? null,
                 message: e.response?.data?.detail || e.message || 'Unknown error',
             };
 
             if (method.toLowerCase() === 'get' && url.startsWith(API_UPLOAD_URL) && error.status === 404) {
+                console.log('[API] GET 404 - returning empty data');
                 return {data: {items: [], pagination: {total: 0, pages: 0}}};
             }
 
@@ -238,21 +268,39 @@
      * @param {string} originalText - Button's original text to restore
      */
     const copyToClipboard = async (text, button, originalText) => {
-        await navigator.clipboard.writeText(text);
-        button.textContent = 'Copied!';
-        setTimeout(() => (button.textContent = originalText), 1500);
+        console.log('[copyToClipboard] Copying text to clipboard:', text.substring(0, 50) + '...');
+        try {
+            await navigator.clipboard.writeText(text);
+            button.textContent = 'Copied!';
+            setTimeout(() => (button.textContent = originalText), 1500);
+            console.log('[copyToClipboard] Successfully copied to clipboard');
+        } catch (e) {
+            console.error('[copyToClipboard] Failed to copy to clipboard:', e);
+        }
     };
 
     /**
      * Initialize tabs functionality with localStorage and URL parameter support
      */
     function initTabs() {
+        console.log('[initTabs] Starting initialization');
+
         const tabs = $$(SEL.allTabs);
         const tabContents = $$(SEL.allTabContent);
 
-        if (!tabs.length || !tabContents.length) return;
+        console.log('[initTabs] Found elements:', {
+            tabs: tabs.length,
+            tabContents: tabContents.length
+        });
+
+        if (!tabs.length || !tabContents.length) {
+            console.error('[initTabs] No tabs or tab contents found!');
+            return;
+        }
 
         const activateTab = (tabId, updateUrl = true) => {
+            console.log(`[activateTab] Activating tab: ${tabId}, updateUrl: ${updateUrl}`);
+
             tabContents.forEach(content => content.classList.add('hidden'));
             tabs.forEach(tab => {
                 tab.classList.remove('active');
@@ -261,6 +309,11 @@
 
             const targetContent = $(`#${tabId}-tab`);
             const targetTab = $(`.tab[data-tab="${tabId}"]`);
+
+            console.log('[activateTab] Target elements:', {
+                targetContent: !!targetContent,
+                targetTab: !!targetTab
+            });
 
             if (targetContent) targetContent.classList.remove('hidden');
             if (targetTab) {
@@ -272,7 +325,6 @@
                 updateUrlParam('tab', tabId);
 
                 if (tabId === 'images') {
-                    initPaginationFromUrl();
                     updatePaginationUrlParams(
                         paginationState.currentPage,
                         paginationState.perPage,
@@ -285,14 +337,20 @@
 
             saveActiveTab(tabId);
 
+            console.log(`[activateTab] Checking loadImages: tabId=${tabId}, loadImagesFunction=${!!loadImagesFunction}`);
+
             if (tabId === 'images' && loadImagesFunction) {
+                console.log('[activateTab] Calling loadImagesFunction');
                 loadImagesFunction();
+            } else if (tabId === 'images') {
+                console.warn('[activateTab] loadImagesFunction not available yet!');
             }
         };
 
         tabs.forEach(tab => {
             tab.addEventListener('click', () => {
                 const tabId = tab.getAttribute('data-tab');
+                console.log('[initTabs] Tab clicked:', tabId);
                 if (tabId && VALID_TABS.includes(tabId)) {
                     activateTab(tabId, true);
                 }
@@ -300,20 +358,36 @@
         });
 
         window.activateTabOnLoad = () => {
+            console.log('[activateTabOnLoad] Starting tab activation on load');
+
             const tabToActivate = getTabToActivate();
+            console.log('[activateTabOnLoad] Tab to activate:', tabToActivate);
 
             if (tabToActivate === 'images') {
+                console.log('[activateTabOnLoad] Initializing pagination from URL');
                 initPaginationFromUrl();
             }
 
-            activateTab(tabToActivate, !getUrlParam('tab'));
+            const hasTabInUrl = !!getUrlParam('tab');
+            const shouldUpdateUrl = !hasTabInUrl;
+
+            console.log('[activateTabOnLoad] URL update decision:', {
+                hasTabInUrl,
+                shouldUpdateUrl
+            });
+
+            activateTab(tabToActivate, shouldUpdateUrl);
         };
+
+        console.log('[initTabs] Initialization complete');
     }
 
     /**
      * Initialize upload functionality.
      */
     function initUploader() {
+        console.log('[initUploader] Starting initialization');
+
         const uploadBtn = $(SEL.uploadBtn);
         const fileInput = $(SEL.fileInput);
         const resultInput = $(SEL.resultInput);
@@ -321,7 +395,19 @@
         const uploadText = $(SEL.uploadText);
         const dropArea = $(SEL.dropArea);
 
-        if (!uploadBtn || !fileInput || !resultInput || !copyBtn || !uploadText || !dropArea) return;
+        console.log('[initUploader] Found elements:', {
+            uploadBtn: !!uploadBtn,
+            fileInput: !!fileInput,
+            resultInput: !!resultInput,
+            copyBtn: !!copyBtn,
+            uploadText: !!uploadText,
+            dropArea: !!dropArea
+        });
+
+        if (!uploadBtn || !fileInput || !resultInput || !copyBtn || !uploadText || !dropArea) {
+            console.error('[initUploader] Missing required elements!');
+            return;
+        }
 
         const allowedTypes = ['image/jpeg', 'image/png', 'image/gif'];
         const maxSize = 1 * 1024 * 1024;
@@ -331,32 +417,58 @@
          * @param {File} file - File to upload.
          */
         const uploadFile = async (file) => {
-            if (!allowedTypes.includes(file.type) || file.size > maxSize) {
-                showStatus(uploadText, 'Upload failed: invalid type or size.', true);
+            console.log('[uploadFile] Starting upload:', {
+                name: file.name,
+                type: file.type,
+                size: file.size
+            });
+
+            if (!allowedTypes.includes(file.type)) {
+                console.error('[uploadFile] Invalid file type:', file.type);
+                showStatus(uploadText, `Upload failed: invalid file type. Allowed: ${allowedTypes.join(', ')}`, true);
                 return;
             }
+
+            if (file.size > maxSize) {
+                console.error('[uploadFile] File too large:', file.size, 'max:', maxSize);
+                showStatus(uploadText, `Upload failed: file too large (max ${maxSize / 1024 / 1024}MB)`, true);
+                return;
+            }
+
             try {
+                showStatus(uploadText, 'Uploading...');
                 const form = new FormData();
                 form.append('file', file);
                 const {data} = await api('post', API_UPLOAD_URL, form, {
                     headers: {'Content-Type': 'multipart/form-data'},
                 });
+                console.log('[uploadFile] Upload successful:', data);
                 showStatus(uploadText, `File uploaded: ${data.filename}`);
                 resultInput.value = `${location.origin}${data.url}`;
             } catch (e) {
+                console.error('[uploadFile] Upload failed:', e);
                 showStatus(uploadText, `Upload failed: ${e.message}`, true);
             }
         };
 
-        uploadBtn.addEventListener('click', () => fileInput.click());
+        uploadBtn.addEventListener('click', () => {
+            console.log('[uploadBtn] Upload button clicked');
+            fileInput.click();
+        });
+
         fileInput.addEventListener('change', () => {
             const file = fileInput.files[0];
+            console.log('[fileInput] File selected:', file?.name);
             if (file) uploadFile(file);
             fileInput.value = '';
         });
 
         copyBtn.addEventListener('click', () => {
-            if (!resultInput.value) return;
+            if (!resultInput.value) {
+                console.log('[copyBtn] No URL to copy');
+                return;
+            }
+            console.log('[copyBtn] Copy button clicked');
             copyToClipboard(resultInput.value, copyBtn, 'COPY');
         });
 
@@ -364,20 +476,33 @@
         ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(ev =>
             dropArea.addEventListener(ev, prevent, false));
 
-        dropArea.addEventListener('dragenter', () => dropArea.classList.add('dragover'));
-        dropArea.addEventListener('dragover', () => dropArea.classList.add('dragover'));
-        dropArea.addEventListener('dragleave', () => dropArea.classList.remove('dragover'));
+        dropArea.addEventListener('dragenter', () => {
+            console.log('[dropArea] Drag enter');
+            dropArea.classList.add('dragover');
+        });
+        dropArea.addEventListener('dragover', () => {
+            dropArea.classList.add('dragover');
+        });
+        dropArea.addEventListener('dragleave', () => {
+            console.log('[dropArea] Drag leave');
+            dropArea.classList.remove('dragover');
+        });
         dropArea.addEventListener('drop', (e) => {
+            console.log('[dropArea] File dropped');
             dropArea.classList.remove('dragover');
             const file = e.dataTransfer.files[0];
             if (file) uploadFile(file);
         });
+
+        console.log('[initUploader] Initialization complete');
     }
 
     /**
      * Initialize "Images" tab: fetch list and handle deletion.
      */
     function initImagesTab() {
+        console.log('[initImagesTab] Starting initialization');
+
         const imgSection = $(SEL.imgSection);
         const imgTabBtn = $(SEL.imgTabBtn);
         const imgGallery = imgSection?.querySelector(SEL.imageGallery);
@@ -388,27 +513,44 @@
         const perPageSelect = $(SEL.perPageSelect);
         const sortSelect = $(SEL.sortSelect);
 
-        if (!imgSection || !imgGallery || !imgTabBtn || !perPageSelect || !sortSelect) return;
+        console.log('[initImagesTab] Found elements:', {
+            imgSection: !!imgSection,
+            imgTabBtn: !!imgTabBtn,
+            imgGallery: !!imgGallery,
+            prevPageBtn: !!prevPageBtn,
+            nextPageBtn: !!nextPageBtn,
+            currentPageSpan: !!currentPageSpan,
+            totalPagesSpan: !!totalPagesSpan,
+            perPageSelect: !!perPageSelect,
+            sortSelect: !!sortSelect
+        });
+
+        if (!imgSection || !imgGallery || !imgTabBtn) {
+            console.error('[initImagesTab] Missing required elements!');
+            return;
+        }
 
         /**
          * Update UI selects with current pagination state
          */
         const updateSelectsFromState = () => {
-            perPageSelect.value = paginationState.perPage.toString();
-            sortSelect.value = paginationState.sortOrder;
+            console.log('[updateSelectsFromState] Updating selects with state:', paginationState);
+            if (perPageSelect) perPageSelect.value = paginationState.perPage.toString();
+            if (sortSelect) sortSelect.value = paginationState.sortOrder;
         };
 
         /**
          * Update pagination UI elements
          */
         const updatePaginationUI = () => {
-            currentPageSpan.textContent = paginationState.currentPage;
-            totalPagesSpan.textContent = paginationState.totalPages || 1;
+            console.log('[updatePaginationUI] Updating UI with state:', paginationState);
 
-            prevPageBtn.disabled = paginationState.currentPage <= 1;
-            nextPageBtn.disabled = paginationState.currentPage >= paginationState.totalPages;
+            if (currentPageSpan) currentPageSpan.textContent = paginationState.currentPage;
+            if (totalPagesSpan) totalPagesSpan.textContent = paginationState.totalPages || 1;
 
-            // Update URL parameters
+            if (prevPageBtn) prevPageBtn.disabled = paginationState.currentPage <= 1;
+            if (nextPageBtn) nextPageBtn.disabled = paginationState.currentPage >= paginationState.totalPages;
+
             updatePaginationUrlParams(
                 paginationState.currentPage,
                 paginationState.perPage,
@@ -422,9 +564,16 @@
          * @param {HTMLElement} card - DOM card to remove.
          */
         const deleteImage = async (filename, card) => {
-            if (!confirm(`Delete "${filename}"?`)) return;
+            console.log('[deleteImage] Attempting to delete:', filename);
+
+            if (!confirm(`Delete "${filename}"?`)) {
+                console.log('[deleteImage] Delete cancelled by user');
+                return;
+            }
+
             try {
                 await api('delete', API_DELETE_URL(filename));
+                console.log('[deleteImage] Delete successful, removing card');
                 card.remove();
 
                 paginationState.totalItems--;
@@ -433,16 +582,21 @@
                     Math.ceil(paginationState.totalItems / paginationState.perPage)
                 );
 
+                console.log('[deleteImage] Updated pagination after delete:', paginationState);
+
                 if (!imgGallery.querySelector('.image-card') && paginationState.currentPage > 1) {
+                    console.log('[deleteImage] Page is empty, going to previous page');
                     paginationState.currentPage--;
                     loadImages();
                 } else if (!imgGallery.querySelector('.image-card')) {
+                    console.log('[deleteImage] No more images, showing empty message');
                     imgGallery.innerHTML = '<p class="no-images-msg">No images uploaded yet.</p>';
                     updatePaginationUI();
                 } else {
                     updatePaginationUI();
                 }
             } catch (e) {
+                console.error('[deleteImage] Delete failed:', e);
                 alert(`Delete failed: ${e.message}`);
             }
         };
@@ -455,6 +609,8 @@
         const createImageCard = (image) => {
             const filename = image.filename;
             const imageUrl = `${location.origin}${image.url || '/images/' + filename}`;
+
+            console.log('[createImageCard] Creating card for:', filename);
 
             const card = document.createElement('div');
             card.className = 'image-card';
@@ -474,13 +630,15 @@
                 </div>
             `;
 
-            card.querySelector('.copy-url-btn').addEventListener('click', () =>
-                copyToClipboard(imageUrl, card.querySelector('.copy-url-btn'), 'Copy URL')
-            );
+            card.querySelector('.copy-url-btn').addEventListener('click', () => {
+                console.log('[createImageCard] Copy URL clicked for:', filename);
+                copyToClipboard(imageUrl, card.querySelector('.copy-url-btn'), 'Copy URL');
+            });
 
-            card.querySelector('.card-delete-btn').addEventListener('click', () =>
-                deleteImage(filename, card)
-            );
+            card.querySelector('.card-delete-btn').addEventListener('click', () => {
+                console.log('[createImageCard] Delete clicked for:', filename);
+                deleteImage(filename, card);
+            });
 
             return card;
         };
@@ -489,6 +647,8 @@
          * Load and display the list of uploaded images as cards with pagination.
          */
         const loadImages = async () => {
+            console.log('[loadImages] Starting to load images with state:', paginationState);
+
             imgGallery.innerHTML = '<div class="loading-spinner-container"><div class="loading-spinner"><i class="fas fa-spinner fa-pulse fa-4x"></i></div></div>';
 
             const paginationControls = $('.pagination-controls');
@@ -500,30 +660,44 @@
 
             try {
                 const url = `${API_UPLOAD_URL}?page=${paginationState.currentPage}&per_page=${paginationState.perPage}&order=${paginationState.sortOrder}`;
+                console.log('[loadImages] Making API request to:', url);
+
                 const response = await api('get', url);
                 const data = response.data;
 
+                console.log('[loadImages] Raw API response data:', data);
+
                 const files = data.items || data;
                 const pagination = data.pagination || {};
+
+                console.log('[loadImages] Processed data:', {
+                    files: files,
+                    filesLength: files?.length,
+                    pagination: pagination
+                });
 
                 imgGallery.innerHTML = '';
 
                 paginationState.totalItems = pagination.total || files.length;
                 paginationState.totalPages = pagination.pages || Math.ceil(files.length / paginationState.perPage) || 1;
 
+                console.log('[loadImages] Updated pagination state:', paginationState);
+
                 if (!files || !files.length) {
+                    console.log('[loadImages] No files found, showing empty message');
                     imgGallery.innerHTML = '<p class="no-images-msg">No images uploaded yet.</p>';
                     updatePaginationUI();
 
                     if (paginationControls) {
                         paginationControls.classList.remove('hidden');
                     }
-
                     return;
                 }
 
+                console.log('[loadImages] Creating cards for', files.length, 'files');
                 const fragment = document.createDocumentFragment();
-                files.forEach((file) => {
+                files.forEach((file, index) => {
+                    console.log(`[loadImages] Processing file ${index + 1}:`, file);
                     const fileObj = typeof file === 'string' ? {filename: file} : file;
                     const card = createImageCard(fileObj);
                     fragment.appendChild(card);
@@ -536,58 +710,93 @@
                     paginationControls.classList.remove('hidden');
                 }
 
+                console.log('[loadImages] Successfully loaded', files.length, 'images');
+
             } catch (e) {
+                console.error('[loadImages] Error loading images:', e);
                 imgGallery.innerHTML = `<p class="no-images-msg" style="color: #FF0000">Error loading images: ${e.message}</p>`;
-                console.error('Images load error =>', e.message);
             }
         };
 
-        // Event listeners
-        perPageSelect.addEventListener('change', () => {
-            const newPerPage = parseInt(perPageSelect.value);
-            if (AVAILABLE_PER_PAGE.includes(newPerPage) && newPerPage !== paginationState.perPage) {
-                paginationState.perPage = newPerPage;
-                paginationState.currentPage = 1;
-                savePerPage(newPerPage);
-                loadImages();
-            }
-        });
+        if (perPageSelect) {
+            perPageSelect.addEventListener('change', () => {
+                const newPerPage = parseInt(perPageSelect.value);
+                console.log('[perPageSelect] Change event:', newPerPage);
+                if (AVAILABLE_PER_PAGE.includes(newPerPage) && newPerPage !== paginationState.perPage) {
+                    paginationState.perPage = newPerPage;
+                    paginationState.currentPage = 1;
+                    savePerPage(newPerPage);
+                    loadImages();
+                }
+            });
+        } else {
+            console.log('[initImagesTab] perPageSelect not found, skipping event listener');
+        }
 
-        sortSelect.addEventListener('change', () => {
-            const newSortOrder = sortSelect.value;
-            if (VALID_SORT_ORDERS.includes(newSortOrder) && newSortOrder !== paginationState.sortOrder) {
-                paginationState.sortOrder = newSortOrder;
-                paginationState.currentPage = 1;
-                saveSortOrder(newSortOrder);
-                loadImages();
-            }
-        });
+        if (sortSelect) {
+            sortSelect.addEventListener('change', () => {
+                const newSortOrder = sortSelect.value;
+                console.log('[sortSelect] Change event:', newSortOrder);
+                if (VALID_SORT_ORDERS.includes(newSortOrder) && newSortOrder !== paginationState.sortOrder) {
+                    paginationState.sortOrder = newSortOrder;
+                    paginationState.currentPage = 1;
+                    saveSortOrder(newSortOrder);
+                    loadImages();
+                }
+            });
+        } else {
+            console.log('[initImagesTab] sortSelect not found, skipping event listener');
+        }
 
-        prevPageBtn.addEventListener('click', () => {
-            if (paginationState.currentPage > 1) {
-                paginationState.currentPage--;
-                loadImages();
-            }
-        });
+        if (prevPageBtn) {
+            prevPageBtn.addEventListener('click', () => {
+                console.log('[prevPageBtn] Click event');
+                if (paginationState.currentPage > 1) {
+                    paginationState.currentPage--;
+                    loadImages();
+                }
+            });
+        } else {
+            console.log('[initImagesTab] prevPageBtn not found, skipping event listener');
+        }
 
-        nextPageBtn.addEventListener('click', () => {
-            if (paginationState.currentPage < paginationState.totalPages) {
-                paginationState.currentPage++;
-                loadImages();
-            }
-        });
+        if (nextPageBtn) {
+            nextPageBtn.addEventListener('click', () => {
+                console.log('[nextPageBtn] Click event');
+                if (paginationState.currentPage < paginationState.totalPages) {
+                    paginationState.currentPage++;
+                    loadImages();
+                }
+            });
+        } else {
+            console.log('[initImagesTab] nextPageBtn not found, skipping event listener');
+        }
 
+        console.log('[initImagesTab] Setting loadImagesFunction');
         loadImagesFunction = loadImages;
+        console.log('[initImagesTab] loadImagesFunction is now set:', !!loadImagesFunction);
+        console.log('[initImagesTab] Initialization complete');
     }
 
     // Initialize modules
     document.addEventListener('DOMContentLoaded', () => {
+        console.log('[DOMContentLoaded] Starting module initialization');
+
         initTabs();
         initUploader();
         initImagesTab();
 
+        console.log('[DOMContentLoaded] All modules initialized');
+        console.log('[DOMContentLoaded] loadImagesFunction available:', !!loadImagesFunction);
+        console.log('[DOMContentLoaded] window.activateTabOnLoad available:', !!window.activateTabOnLoad);
+
         if (window.activateTabOnLoad) {
+            console.log('[DOMContentLoaded] Calling activateTabOnLoad');
             window.activateTabOnLoad();
+        } else {
+            console.error('[DOMContentLoaded] activateTabOnLoad function not found!');
         }
+
+        console.log('[DOMContentLoaded] Initialization complete');
     });
 })();
