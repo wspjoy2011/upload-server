@@ -8,8 +8,9 @@ Side effects:
     - None. This module only defines classes.
 """
 import json
+import re
 from logging import Logger
-from typing import Dict, Optional, Any, BinaryIO
+from typing import Dict, Optional, Any, BinaryIO, Tuple
 from abc import abstractmethod
 
 
@@ -91,7 +92,7 @@ class RouterMixin:
     """Mixin that adds routing capabilities to HTTP request handlers.
 
     This mixin provides methods to:
-    - Register routes for different HTTP methods
+    - Register routes for different HTTP methods with dynamic parameters
     - Parse path and query parameters
     - Dispatch requests to appropriate handler methods
 
@@ -107,6 +108,7 @@ class RouterMixin:
     routes_put: Dict[str, str] = {}
 
     path: Optional[str] = None
+    route_params: Dict[str, str] = {}
 
     @abstractmethod
     def send_json_error(self, status_code: int, message: str) -> None:
@@ -123,11 +125,67 @@ class RouterMixin:
         """
         pass
 
+    def _route_to_regex(self, route: str) -> Tuple[re.Pattern, list]:
+        """Convert route pattern to regex pattern.
+
+        Args:
+            route (str): Route pattern like '/upload/<filename>' or '/api/<path>/<id>'
+
+        Returns:
+            Tuple[re.Pattern, list]: Compiled regex pattern and list of parameter names
+        """
+        param_names = []
+        regex_pattern = route
+
+        import re as regex_module
+        param_pattern = r'<([^>]+)>'
+
+        for match in regex_module.finditer(param_pattern, route):
+            param_name = match.group(1)
+            param_names.append(param_name)
+            regex_pattern = regex_pattern.replace(f'<{param_name}>', '([^/]+)')
+
+        regex_pattern = f'^{regex_pattern}$'
+
+        compiled_pattern = regex_module.compile(regex_pattern)
+        return compiled_pattern, param_names
+
+    def _match_route(self, path: str, routes: Dict[str, str]) -> Tuple[Optional[str], Dict[str, str]]:
+        """Match path against route patterns and extract parameters.
+
+        Args:
+            path (str): Request path to match
+            routes (Dict[str, str]): Route patterns mapped to handler names
+
+        Returns:
+            Tuple[Optional[str], Dict[str, str]]: Handler name and extracted parameters
+        """
+        if path in routes:
+            return routes[path], {}
+
+        for route_pattern, handler_name in routes.items():
+            if '<' in route_pattern:
+                regex_pattern, param_names = self._route_to_regex(route_pattern)
+                match = regex_pattern.match(path)
+
+                if match:
+                    params = {}
+                    for i, param_name in enumerate(param_names):
+                        params[param_name] = match.group(i + 1)
+
+                    return handler_name, params
+
+        for route_prefix, handler_name in routes.items():
+            if '<' not in route_prefix and path.startswith(route_prefix):
+                return handler_name, {}
+
+        return None, {}
+
     def handle_request(self, routes: Dict[str, str]) -> None:
         """Resolves path to appropriate handler method and calls it.
 
         Args:
-            routes (Dict[str, str]): Mapping of path to handler method names.
+            routes (Dict[str, str]): Mapping of path patterns to handler method names.
 
         Side effects:
             - Calls appropriate handler method.
@@ -141,13 +199,9 @@ class RouterMixin:
         if '?' in base_path:
             base_path, _ = base_path.split('?', 1)
 
-        handler_name = routes.get(base_path)
+        handler_name, params = self._match_route(base_path, routes)
 
-        if not handler_name:
-            for route_prefix, candidate_handler in routes.items():
-                if base_path.startswith(route_prefix):
-                    handler_name = candidate_handler
-                    break
+        self.route_params = params
 
         if not handler_name:
             self.send_json_error(404, "Not Found")
@@ -196,3 +250,14 @@ class RouterMixin:
 
         param = self.path[len(prefix):]
         return param if param else None
+
+    def get_route_param(self, param_name: str) -> Optional[str]:
+        """Get parameter value from current route.
+
+        Args:
+            param_name (str): Name of the parameter to get
+
+        Returns:
+            Optional[str]: Parameter value or None if not found
+        """
+        return self.route_params.get(param_name)

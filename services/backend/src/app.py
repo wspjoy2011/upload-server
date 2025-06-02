@@ -53,6 +53,7 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
     routes_get = {
         "/": "_handle_get_root",
         "/upload/": "_handle_get_uploads",
+        "/upload/<filename>": "_handle_get_upload_details",
     }
 
     routes_post = {
@@ -60,7 +61,7 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
     }
 
     routes_delete = {
-        "/upload/": "_handle_delete_upload",
+        "/upload/<filename>": "_handle_delete_upload",
     }
 
     @property
@@ -70,6 +71,7 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
 
     def do_GET(self):
         """Handles GET requests and dispatches them based on route."""
+        logger.info(f"GET request received: {self.path}")
         self.handle_request(self.routes_get)
 
     def do_POST(self):
@@ -226,7 +228,9 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
             - Deletes record from database.
             - Sends JSON response or error.
         """
-        filename = self.extract_path_param("/upload/")
+        filename = self.get_route_param("filename")
+        logger.info(f"Delete request for filename: {filename}")
+
         if not filename:
             self.send_json_error(400, "Filename not provided.")
             return
@@ -250,6 +254,37 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
 
         logger.info(f"File '{filename}' deleted successfully.")
         self.send_json_response(200, {"message": f"File '{filename}' deleted successfully."})
+
+    def _handle_get_upload_details(self):
+        """Returns detailed information about a specific image file.
+
+        Side effects:
+            - Queries database for file metadata.
+            - Sends JSON response with image details or error.
+        """
+        filename = self.get_route_param("filename")
+        logger.info(f"Upload details request for filename: {filename}")
+
+        if not filename:
+            self.send_json_error(400, "Filename not provided.")
+            return
+
+        repository = get_image_repository()
+        try:
+            image_details = repository.get_by_filename(filename)
+            if not image_details:
+                self.send_json_error(404, f"Image '{filename}' not found.")
+                return
+        except RepositoryError as e:
+            logger.error(f"Failed to get image details for '{filename}': {str(e)}")
+            self.send_json_error(e.status_code, e.message)
+            return
+
+        image_dict = image_details.as_dict()
+        image_dict["url"] = f"/images/{filename}"
+
+        logger.info(f"Image details retrieved for '{filename}'.")
+        self.send_json_response(200, image_dict)
 
 
 def run_server_on_port(port: int):
