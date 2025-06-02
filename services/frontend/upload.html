@@ -52,23 +52,44 @@
 
   <!-- Images Section -->
   <section class="images-section tab-content hidden" id="images-tab">
+    <!-- Controls Header -->
+    <div class="gallery-controls">
+      <div class="sort-controls">
+        <select id="sortSelect">
+          <option value="desc" selected>Newest First</option>
+          <option value="asc">Oldest First</option>
+        </select>
+      </div>
+      <div class="per-page-controls">
+        <div class="per-page-select">
+          <select id="perPageSelect">
+            <option value="4">4</option>
+            <option value="8" selected>8</option>
+            <option value="12">12</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
     <div class="image-gallery">
     </div>
 
+    <!-- Gallery Divider -->
+    <div class="gallery-divider">
+      <div class="divider-line"></div>
+      <div class="divider-content">
+        <i class="fas fa-images"></i>
+      </div>
+      <div class="divider-line"></div>
+    </div>
+
+    <!-- Pagination Footer -->
     <div class="pagination-controls">
       <button class="pagination-btn" id="prevPage" disabled>
         <i class="fas fa-chevron-left"></i> Previous
       </button>
       <div class="pagination-info">
         Page <span id="currentPage">1</span> of <span id="totalPages">1</span>
-      </div>
-      <div class="per-page-select">
-        <label for="perPageSelect">Per page:</label>
-        <select id="perPageSelect">
-          <option value="4">4</option>
-          <option value="8" selected>8</option>
-          <option value="12">12</option>
-        </select>
       </div>
       <button class="pagination-btn" id="nextPage" disabled>
         Next <i class="fas fa-chevron-right"></i>

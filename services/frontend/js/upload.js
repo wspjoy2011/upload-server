@@ -13,13 +13,17 @@
 
     const LS_KEYS = {
         PER_PAGE: 'image_host_per_page',
-        ACTIVE_TAB: 'image_host_active_tab'
+        ACTIVE_TAB: 'image_host_active_tab',
+        SORT_ORDER: 'image_host_sort_order'
     };
 
     const DEFAULT_PAGE = 1;
     const DEFAULT_PER_PAGE = 8;
     const AVAILABLE_PER_PAGE = [4, 8, 12];
     const DEFAULT_TAB = 'upload';
+    const DEFAULT_SORT_ORDER = 'desc';
+    const VALID_TABS = ['upload', 'images'];
+    const VALID_SORT_ORDERS = ['desc', 'asc'];
 
     const SEL = {
         uploadBtn: '#uploadBtn',
@@ -39,7 +43,8 @@
         nextPageBtn: '#nextPage',
         currentPageSpan: '#currentPage',
         totalPagesSpan: '#totalPages',
-        perPageSelect: '#perPageSelect'
+        perPageSelect: '#perPageSelect',
+        sortSelect: '#sortSelect'
     };
 
     const $ = (s) => document.querySelector(s);
@@ -68,11 +73,125 @@
         localStorage.setItem(LS_KEYS.ACTIVE_TAB, tab);
     };
 
+    const getSavedSortOrder = () => {
+        const saved = localStorage.getItem(LS_KEYS.SORT_ORDER);
+        if (saved && VALID_SORT_ORDERS.includes(saved)) {
+            return saved;
+        }
+        return DEFAULT_SORT_ORDER;
+    };
+
+    const saveSortOrder = (sortOrder) => {
+        localStorage.setItem(LS_KEYS.SORT_ORDER, sortOrder);
+    };
+
+    /**
+     * Get URL search parameter value
+     * @param {string} paramName - Parameter name to get
+     * @returns {string|null} Parameter value or null if not found
+     */
+    const getUrlParam = (paramName) => {
+        const urlParams = new URLSearchParams(window.location.search);
+        return urlParams.get(paramName);
+    };
+
+    /**
+     * Update URL parameter without page reload
+     * @param {string} paramName - Parameter name
+     * @param {string} value - Parameter value
+     */
+    const updateUrlParam = (paramName, value) => {
+        const url = new URL(window.location);
+        url.searchParams.set(paramName, value);
+        window.history.replaceState({}, '', url);
+    };
+
+    /**
+     * Remove URL parameter without page reload
+     * @param {string} paramName - Parameter name to remove
+     */
+    const removeUrlParam = (paramName) => {
+        const url = new URL(window.location);
+        url.searchParams.delete(paramName);
+        window.history.replaceState({}, '', url);
+    };
+
+    /**
+     * Update pagination-related URL parameters
+     * @param {number} page - Current page
+     * @param {number} perPage - Items per page
+     * @param {string} order - Sort order
+     */
+    const updatePaginationUrlParams = (page, perPage, order) => {
+        const url = new URL(window.location);
+        url.searchParams.set('page', page.toString());
+        url.searchParams.set('per_page', perPage.toString());
+        url.searchParams.set('order', order);
+        window.history.replaceState({}, '', url);
+    };
+
+    /**
+     * Remove pagination-related URL parameters
+     */
+    const removePaginationUrlParams = () => {
+        const url = new URL(window.location);
+        url.searchParams.delete('page');
+        url.searchParams.delete('per_page');
+        url.searchParams.delete('order');
+        window.history.replaceState({}, '', url);
+    };
+
+    /**
+     * Initialize pagination state from URL parameters
+     */
+    const initPaginationFromUrl = () => {
+        const urlPage = getUrlParam('page');
+        const urlPerPage = getUrlParam('per_page');
+        const urlOrder = getUrlParam('order');
+
+        if (urlPage) {
+            const pageNum = parseInt(urlPage);
+            if (pageNum > 0) {
+                paginationState.currentPage = pageNum;
+            }
+        }
+
+        if (urlPerPage) {
+            const perPageNum = parseInt(urlPerPage);
+            if (AVAILABLE_PER_PAGE.includes(perPageNum)) {
+                paginationState.perPage = perPageNum;
+            }
+        }
+
+        if (urlOrder && VALID_SORT_ORDERS.includes(urlOrder)) {
+            paginationState.sortOrder = urlOrder;
+        }
+    };
+
+    /**
+     * Determine which tab should be active based on URL param, localStorage, or default
+     * @returns {string} Tab ID to activate
+     */
+    const getTabToActivate = () => {
+        const urlTab = getUrlParam('tab');
+        if (urlTab && VALID_TABS.includes(urlTab)) {
+            return urlTab;
+        }
+
+        const savedTab = getSavedActiveTab();
+        if (VALID_TABS.includes(savedTab)) {
+            return savedTab;
+        }
+
+        return DEFAULT_TAB;
+    };
+
     const paginationState = {
         currentPage: DEFAULT_PAGE,
         perPage: getSavedPerPage(),
         totalPages: 1,
-        totalItems: 0
+        totalItems: 0,
+        sortOrder: getSavedSortOrder()
     };
 
     /**
@@ -125,7 +244,7 @@
     };
 
     /**
-     * Initialize tabs functionality with localStorage support
+     * Initialize tabs functionality with localStorage and URL parameter support
      */
     function initTabs() {
         const tabs = $$(SEL.allTabs);
@@ -133,9 +252,7 @@
 
         if (!tabs.length || !tabContents.length) return;
 
-        const activeTabId = getSavedActiveTab();
-
-        const activateTab = (tabId) => {
+        const activateTab = (tabId, updateUrl = true) => {
             tabContents.forEach(content => content.classList.add('hidden'));
             tabs.forEach(tab => {
                 tab.classList.remove('active');
@@ -151,6 +268,23 @@
                 targetTab.classList.remove('inactive');
             }
 
+            if (updateUrl) {
+                updateUrlParam('tab', tabId);
+
+                if (tabId === 'images') {
+                    initPaginationFromUrl();
+                    updatePaginationUrlParams(
+                        paginationState.currentPage,
+                        paginationState.perPage,
+                        paginationState.sortOrder
+                    );
+                } else {
+                    removePaginationUrlParams();
+                }
+            }
+
+            saveActiveTab(tabId);
+
             if (tabId === 'images' && loadImagesFunction) {
                 loadImagesFunction();
             }
@@ -159,15 +293,20 @@
         tabs.forEach(tab => {
             tab.addEventListener('click', () => {
                 const tabId = tab.getAttribute('data-tab');
-                if (tabId) {
-                    activateTab(tabId);
-                    saveActiveTab(tabId);
+                if (tabId && VALID_TABS.includes(tabId)) {
+                    activateTab(tabId, true);
                 }
             });
         });
 
         window.activateTabOnLoad = () => {
-            activateTab(activeTabId);
+            const tabToActivate = getTabToActivate();
+
+            if (tabToActivate === 'images') {
+                initPaginationFromUrl();
+            }
+
+            activateTab(tabToActivate, !getUrlParam('tab'));
         };
     }
 
@@ -247,10 +386,17 @@
         const currentPageSpan = $(SEL.currentPageSpan);
         const totalPagesSpan = $(SEL.totalPagesSpan);
         const perPageSelect = $(SEL.perPageSelect);
+        const sortSelect = $(SEL.sortSelect);
 
-        if (!imgSection || !imgGallery || !imgTabBtn || !perPageSelect) return;
+        if (!imgSection || !imgGallery || !imgTabBtn || !perPageSelect || !sortSelect) return;
 
-        perPageSelect.value = paginationState.perPage.toString();
+        /**
+         * Update UI selects with current pagination state
+         */
+        const updateSelectsFromState = () => {
+            perPageSelect.value = paginationState.perPage.toString();
+            sortSelect.value = paginationState.sortOrder;
+        };
 
         /**
          * Update pagination UI elements
@@ -261,6 +407,13 @@
 
             prevPageBtn.disabled = paginationState.currentPage <= 1;
             nextPageBtn.disabled = paginationState.currentPage >= paginationState.totalPages;
+
+            // Update URL parameters
+            updatePaginationUrlParams(
+                paginationState.currentPage,
+                paginationState.perPage,
+                paginationState.sortOrder
+            );
         };
 
         /**
@@ -343,8 +496,10 @@
                 paginationControls.classList.add('hidden');
             }
 
+            updateSelectsFromState();
+
             try {
-                const url = `${API_UPLOAD_URL}?page=${paginationState.currentPage}&per_page=${paginationState.perPage}`;
+                const url = `${API_UPLOAD_URL}?page=${paginationState.currentPage}&per_page=${paginationState.perPage}&order=${paginationState.sortOrder}`;
                 const response = await api('get', url);
                 const data = response.data;
 
@@ -387,12 +542,23 @@
             }
         };
 
+        // Event listeners
         perPageSelect.addEventListener('change', () => {
             const newPerPage = parseInt(perPageSelect.value);
             if (AVAILABLE_PER_PAGE.includes(newPerPage) && newPerPage !== paginationState.perPage) {
                 paginationState.perPage = newPerPage;
                 paginationState.currentPage = 1;
                 savePerPage(newPerPage);
+                loadImages();
+            }
+        });
+
+        sortSelect.addEventListener('change', () => {
+            const newSortOrder = sortSelect.value;
+            if (VALID_SORT_ORDERS.includes(newSortOrder) && newSortOrder !== paginationState.sortOrder) {
+                paginationState.sortOrder = newSortOrder;
+                paginationState.currentPage = 1;
+                saveSortOrder(newSortOrder);
                 loadImages();
             }
         });
