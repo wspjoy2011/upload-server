@@ -609,6 +609,7 @@
         const createImageCard = (image) => {
             const filename = image.filename;
             const imageUrl = `${location.origin}${image.url || '/images/' + filename}`;
+            const detailUrl = `image_detail.html?filename=${encodeURIComponent(filename)}`;
 
             console.log('[createImageCard] Creating card for:', filename);
 
@@ -616,7 +617,9 @@
             card.className = 'image-card';
             card.innerHTML = `
                 <div class="image-card-preview">
-                    <img src="${imageUrl}" alt="${filename}" loading="lazy" />
+                    <a href="${detailUrl}">
+                        <img src="${imageUrl}" alt="${filename}" loading="lazy" />
+                    </a>
                 </div>
                 <div class="image-card-info">
                     <h3 class="image-card-title" title="${filename}">${filename}</h3>
