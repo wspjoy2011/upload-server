@@ -9,7 +9,6 @@
     /* --------------------------------------------------------------------
      *  CONSTANTS
      * ------------------------------------------------------------------ */
-    const API_UPLOAD_URL = `${location.origin}/api/upload/`;
     const API_DELETE_URL = (fn) => `${location.origin}/api/upload/${encodeURIComponent(fn)}`;
     const API_DETAIL_URL = (fn) => `${location.origin}/api/upload/${encodeURIComponent(fn)}`;
 
