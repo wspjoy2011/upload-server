@@ -22,14 +22,21 @@ from logging import Logger
 
 from python_multipart import parse_form
 
-from db.dependencies import get_image_repository
-from db.dto import ImageDTO
 from exceptions.api_errors import APIError
-from exceptions.repository_errors import RepositoryError
-from handlers.dependencies import get_file_handler
+from exceptions.service_errors import (
+    UploadServiceError,
+    InvalidSortOrderError,
+    ImageListServiceError,
+    ImageNotFoundError,
+    ImageDeletionServiceError,
+    ImageDetailsServiceError
+)
+from helpers.files import get_file_collector
 from interfaces.pagination import InvalidPageNumberError, InvalidPerPageError
 from interfaces.protocols import RequestHandlerFactory
+from interfaces.services import ImageUploadServiceInterface
 from mixins.pagination import PaginationMixin
+from services.dependencies import get_image_upload_service
 from settings.config import config
 from settings.logging_config import get_logger
 from mixins.http import RouterMixin, JsonResponseMixin
@@ -68,6 +75,11 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
     def logger(self) -> Logger:
         """Return the application logger."""
         return logger
+
+    @property
+    def image_service(self) -> ImageUploadServiceInterface:
+        """Return the image upload service."""
+        return get_image_upload_service()
 
     def do_GET(self):
         """Handles GET requests and dispatches them based on route."""
@@ -119,45 +131,38 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
             return
 
         order = query_params.get("order", "desc").lower()
-        if order not in ("desc", "asc"):
-            self.send_json_error(400, "Order parameter must be 'desc' or 'asc'")
+
+        try:
+            images_dto, total_count = self.image_service.get_images_list(pagination_dto, order)
+        except InvalidSortOrderError as e:
+            self.send_json_error(e.status_code, e.message)
             return
-
-        limit, offset = self.get_limit_offset(pagination_dto)
-
-        repository = get_image_repository()
-
-        total_count = repository.count()
+        except ImageListServiceError as e:
+            logger.error(f"Failed to list images: {e.message}")
+            self.send_json_error(e.status_code, e.message)
+            return
 
         if not total_count:
             self.send_json_error(404, "No images found.")
             return
 
-        try:
-            images_dto = repository.list_all(limit, offset, order)
-        except RepositoryError as e:
-            logger.error(f"Failed to list images: {str(e)}")
-            self.send_json_error(500, f"Failed to list images: {str(e)}")
-        except ValueError as e:
-            logger.error(f"Invalid order parameter: {str(e)}")
-            self.send_json_error(400, str(e))
-        else:
-            response = {
-                "items": [image_dto.as_dict() for image_dto in images_dto],
-                "pagination": {
-                    "page": pagination_dto.page,
-                    "per_page": pagination_dto.per_page,
-                    "total": total_count,
-                    "pages": (total_count + pagination_dto.per_page - 1) // pagination_dto.per_page,
-                    "has_next": pagination_dto.page < (
-                            total_count + pagination_dto.per_page - 1) // pagination_dto.per_page,
-                    "has_previous": pagination_dto.page > 1
-                }
+        response = {
+            "items": [image_dto.as_dict() for image_dto in images_dto],
+            "pagination": {
+                "page": pagination_dto.page,
+                "per_page": pagination_dto.per_page,
+                "total": total_count,
+                "pages": (total_count + pagination_dto.per_page - 1) // pagination_dto.per_page,
+                "has_next": pagination_dto.page < (
+                        total_count + pagination_dto.per_page - 1) // pagination_dto.per_page,
+                "has_previous": pagination_dto.page > 1
             }
-            logger.info(
-                f"Returned {len(images_dto)} images (page {pagination_dto.page}"
-                f" of {(total_count + pagination_dto.per_page - 1) // pagination_dto.per_page}, order={order})")
-            self.send_json_response(200, response)
+        }
+
+        logger.info(
+            f"Returned {len(images_dto)} images (page {pagination_dto.page}"
+            f" of {(total_count + pagination_dto.per_page - 1) // pagination_dto.per_page}, order={order})")
+        self.send_json_response(200, response)
 
     def _handle_post_upload(self):
         """Processes and saves an uploaded file.
@@ -180,10 +185,9 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
         }
 
         files = []
-        file_handler = get_file_handler()
 
         try:
-            on_file_callback = file_handler.get_file_collector(files)
+            on_file_callback = get_file_collector(files)
             parse_form(headers, self.rfile, lambda _: None, on_file_callback)  # type: ignore[arg-type]
         except APIError as e:
             self.send_json_error(e.status_code, e.message)
@@ -194,23 +198,8 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
             return
 
         try:
-            uploaded_file_dto = file_handler.handle_upload(files[0])
-        except APIError as e:
-            self.send_json_error(e.status_code, e.message)
-            return
-
-        image_dto = ImageDTO(
-            filename=uploaded_file_dto.filename,
-            original_name=uploaded_file_dto.original_name,
-            size=uploaded_file_dto.size,
-            file_type=uploaded_file_dto.extension
-        )
-
-        repository = get_image_repository()
-
-        try:
-            repository.create(image_dto)
-        except RepositoryError as e:
+            uploaded_file_dto = self.image_service.upload_image(files[0])
+        except UploadServiceError as e:
             self.send_json_error(e.status_code, e.message)
             return
 
@@ -235,20 +224,13 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
             self.send_json_error(400, "Filename not provided.")
             return
 
-        file_handler = get_file_handler()
         try:
-            file_handler.delete_file(filename)
-        except APIError as e:
+            self.image_service.delete_image(filename)
+        except ImageNotFoundError as e:
             self.send_json_error(e.status_code, e.message)
             return
-
-        repository = get_image_repository()
-        try:
-            db_deleted = repository.delete_by_filename(filename)
-            if not db_deleted:
-                logger.warning(f"File '{filename}' was not found in database while deleting")
-        except RepositoryError as e:
-            logger.error(f"Failed to delete file '{filename}' from database: {str(e)}")
+        except ImageDeletionServiceError as e:
+            logger.error(f"Failed to delete image '{filename}': {e.message}")
             self.send_json_error(e.status_code, e.message)
             return
 
@@ -269,14 +251,13 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
             self.send_json_error(400, "Filename not provided.")
             return
 
-        repository = get_image_repository()
         try:
-            image_details = repository.get_by_filename(filename)
-            if not image_details:
-                self.send_json_error(404, f"Image '{filename}' not found.")
-                return
-        except RepositoryError as e:
-            logger.error(f"Failed to get image details for '{filename}': {str(e)}")
+            image_details = self.image_service.get_image_details(filename)
+        except ImageNotFoundError as e:
+            self.send_json_error(e.status_code, e.message)
+            return
+        except ImageDetailsServiceError as e:
+            logger.error(f"Failed to get image details for '{filename}': {e.message}")
             self.send_json_error(e.status_code, e.message)
             return
 

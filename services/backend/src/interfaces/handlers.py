@@ -6,7 +6,6 @@ implementations.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Callable, Any
 
 from dto.file import UploadedFileDTO
 
@@ -30,24 +29,6 @@ class FileHandlerInterface(ABC):
 
         Raises:
             Various exceptions for validation failures.
-        """
-        pass
-
-    @abstractmethod
-    def get_file_collector(self, files_list: List) -> Callable[[Any], None]:
-        """Returns a callback function that collects files into the provided list.
-
-        This method creates a closure that has access to the files_list and
-        implements logic for handling file collection during multipart form parsing.
-
-        Args:
-            files_list: A list where uploaded files will be collected.
-
-        Returns:
-            A callback function to be used with multipart form parser.
-
-        Raises:
-            MultipleFilesUploadError: If more than one file is being uploaded.
         """
         pass
 

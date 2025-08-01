@@ -13,7 +13,7 @@ and maintainable.
 import os
 import uuid
 import shutil
-from typing import cast, List, Callable, Any
+from typing import cast
 
 from PIL import Image, UnidentifiedImageError
 
@@ -22,7 +22,6 @@ from settings.config import config
 from exceptions.api_errors import (
     NotSupportedFormatError,
     MaxSizeExceedError,
-    MultipleFilesUploadError,
     UnsupportedFileFormatError,
     PermissionDeniedError,
     FileNotFoundError,
@@ -112,29 +111,6 @@ class FileHandler(FileHandlerInterface):
             extension=ext,
             url=f"/images/{unique_name}"
         )
-
-    def get_file_collector(self, files_list: List) -> Callable[[Any], None]:
-        """Returns a callback function that collects files into the provided list.
-
-        Creates a closure that has access to the files_list and implements
-        logic for handling file collection during multipart form parsing.
-
-        Args:
-            files_list: A list where uploaded files will be collected.
-
-        Returns:
-            A callback function to be used with multipart form parser.
-
-        Raises:
-            MultipleFilesUploadError: If more than one file is being uploaded.
-        """
-
-        def on_file(file):
-            if len(files_list) >= 1:
-                raise MultipleFilesUploadError()
-            files_list.append(file)
-
-        return on_file
 
     def delete_file(self, filename: str) -> None:
         """Delete a file from the file system.
