@@ -22,6 +22,7 @@ from logging import Logger
 
 from python_multipart import parse_form
 
+from decorators.routing import route, register_routes
 from exceptions.api_errors import APIError
 from exceptions.service_errors import (
     UploadServiceError,
@@ -44,32 +45,17 @@ from mixins.http import RouterMixin, JsonResponseMixin
 logger = get_logger(__name__)
 
 
+@register_routes
 class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, PaginationMixin):
     """Handles HTTP requests related to file uploads, listing, and deletion.
 
-    Routes:
-        GET / → Healthcheck.
-        GET /upload/ → List all uploaded image files.
-        POST /upload/ → Upload a single image file.
-        DELETE /upload/<filename> → Delete the specified image.
+    Routes are automatically registered using @route decorators.
+    The @register_routes class decorator scans for @route decorated methods
+    and populates the appropriate routes dictionaries.
 
     Use:
-        - Dynamic dispatch based on routes defined in route dictionaries.
+        - Dynamic dispatch based on routes defined via decorators.
     """
-
-    routes_get = {
-        "/": "_handle_get_root",
-        "/upload/": "_handle_get_uploads",
-        "/upload/<filename>": "_handle_get_upload_details",
-    }
-
-    routes_post = {
-        "/upload/": "_handle_post_upload",
-    }
-
-    routes_delete = {
-        "/upload/<filename>": "_handle_delete_upload",
-    }
 
     @property
     def logger(self) -> Logger:
@@ -83,7 +69,7 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
 
     def do_GET(self):
         """Handles GET requests and dispatches them based on route."""
-        logger.info(f"GET request received: {self.path}")
+        self.logger.info(f"GET request received: {self.path}")
         self.handle_request(self.routes_get)
 
     def do_POST(self):
@@ -94,12 +80,14 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
         """Handles DELETE requests and dispatches them based on route."""
         self.handle_request(self.routes_delete)
 
-    def _handle_get_root(self):
+    @route('GET', '/')
+    def handle_get_root(self):
         """Handles healthcheck at GET /."""
-        logger.info("Healthcheck endpoint hit: /")
+        self.logger.info("Healthcheck endpoint hit: /")
         self.send_json_response(200, {"message": "Welcome to the Upload Server"})
 
-    def _handle_get_uploads(self):
+    @route('GET', '/upload/')
+    def handle_get_uploads(self):
         """Returns list of uploaded images as JSON.
 
         Query parameters:
@@ -120,7 +108,7 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
                 default_per_page=10,
                 max_per_page=20
             )
-            logger.info(
+            self.logger.info(
                 f"Requested images list with pagination: page={pagination_dto.page}, per_page={pagination_dto.per_page}"
             )
         except InvalidPageNumberError as e:
@@ -138,7 +126,7 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
             self.send_json_error(e.status_code, e.message)
             return
         except ImageListServiceError as e:
-            logger.error(f"Failed to list images: {e.message}")
+            self.logger.error(f"Failed to list images: {e.message}")
             self.send_json_error(e.status_code, e.message)
             return
 
@@ -159,12 +147,13 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
             }
         }
 
-        logger.info(
+        self.logger.info(
             f"Returned {len(images_dto)} images (page {pagination_dto.page}"
             f" of {(total_count + pagination_dto.per_page - 1) // pagination_dto.per_page}, order={order})")
         self.send_json_response(200, response)
 
-    def _handle_post_upload(self):
+    @route('POST', '/upload/')
+    def handle_post_upload(self):
         """Processes and saves an uploaded file.
 
         Side effects:
@@ -203,13 +192,14 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
             self.send_json_error(e.status_code, e.message)
             return
 
-        logger.info(f"File '{uploaded_file_dto.filename}' uploaded successfully.")
+        self.logger.info(f"File '{uploaded_file_dto.filename}' uploaded successfully.")
         self.send_json_response(200, {
             "filename": uploaded_file_dto.filename,
             "url": uploaded_file_dto.url
         })
 
-    def _handle_delete_upload(self):
+    @route('DELETE', '/upload/<filename>')
+    def handle_delete_upload(self):
         """Deletes a file by name from the upload directory and database.
 
         Side effects:
@@ -218,7 +208,7 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
             - Sends JSON response or error.
         """
         filename = self.get_route_param("filename")
-        logger.info(f"Delete request for filename: {filename}")
+        self.logger.info(f"Delete request for filename: {filename}")
 
         if not filename:
             self.send_json_error(400, "Filename not provided.")
@@ -230,14 +220,15 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
             self.send_json_error(e.status_code, e.message)
             return
         except ImageDeletionServiceError as e:
-            logger.error(f"Failed to delete image '{filename}': {e.message}")
+            self.logger.error(f"Failed to delete image '{filename}': {e.message}")
             self.send_json_error(e.status_code, e.message)
             return
 
-        logger.info(f"File '{filename}' deleted successfully.")
+        self.logger.info(f"File '{filename}' deleted successfully.")
         self.send_json_response(200, {"message": f"File '{filename}' deleted successfully."})
 
-    def _handle_get_upload_details(self):
+    @route('GET', '/upload/<filename>')
+    def handle_get_upload_details(self):
         """Returns detailed information about a specific image file.
 
         Side effects:
@@ -245,7 +236,7 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
             - Sends JSON response with image details or error.
         """
         filename = self.get_route_param("filename")
-        logger.info(f"Upload details request for filename: {filename}")
+        self.logger.info(f"Upload details request for filename: {filename}")
 
         if not filename:
             self.send_json_error(400, "Filename not provided.")
@@ -257,14 +248,14 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
             self.send_json_error(e.status_code, e.message)
             return
         except ImageDetailsServiceError as e:
-            logger.error(f"Failed to get image details for '{filename}': {e.message}")
+            self.logger.error(f"Failed to get image details for '{filename}': {e.message}")
             self.send_json_error(e.status_code, e.message)
             return
 
         image_dict = image_details.as_dict()
         image_dict["url"] = f"/images/{filename}"
 
-        logger.info(f"Image details retrieved for '{filename}'.")
+        self.logger.info(f"Image details retrieved for '{filename}'.")
         self.send_json_response(200, image_dict)
 
 
