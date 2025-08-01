@@ -29,6 +29,7 @@ class JsonResponseMixin:
     """
 
     wfile: BinaryIO
+    logger: Logger
 
     @abstractmethod
     def send_response(self, code: int) -> None:
@@ -41,11 +42,6 @@ class JsonResponseMixin:
     @abstractmethod
     def end_headers(self) -> None:
         pass
-
-    @property
-    def logger(self) -> Logger:
-        """Return a logger for error and warning messages."""
-        raise NotImplementedError("Subclasses must provide a logger property")
 
     def send_json_error(self, status_code: int, message: str) -> None:
         """Sends a JSON error response and logs the message.
