@@ -3,11 +3,12 @@
 This module provides a dependency injection system that allows automatic
 resolution and injection of dependencies into classes and methods.
 """
-
+import functools
+from http.server import BaseHTTPRequestHandler
 from typing import Dict, Any, Callable, TypeVar, Type
 from logging import Logger
 
-T = TypeVar('T')
+T = TypeVar('T', bound=Type[BaseHTTPRequestHandler])
 
 
 class DIContainer:
@@ -131,6 +132,7 @@ def inject(*service_names: str) -> Callable[[Type[T]], Type[T]]:
     def decorator(cls: Type[T]) -> Type[T]:
         original_init = cls.__init__
 
+        @functools.wraps(original_init)
         def new_init(self, *args, **kwargs):
             container = get_container()
             for service_name in service_names:

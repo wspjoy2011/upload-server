@@ -29,64 +29,30 @@ from mixins.http import RouterMixin, JsonResponseMixin
 
 @register_routes
 @inject('image_service', 'logger')
-class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, PaginationMixin):
+class UploadController(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, PaginationMixin):
     """Handles HTTP requests related to file uploads, listing, and deletion.
 
     This controller provides RESTful endpoints for:
-    - Health check (GET /)
     - Image listing with pagination (GET /upload/)
     - Image upload (POST /upload/)
     - Image deletion (DELETE /upload/<filename>)
     - Image details (GET /upload/<filename>)
 
     Routes are automatically registered using @route decorators.
-    The @register_routes class decorator scans for @route decorated methods
-    and populates the appropriate routes dictionaries.
+    This controller is designed to work with CompositeController,
+    so it doesn't define do_GET/POST/DELETE methods.
 
     Dependencies are automatically injected via @inject decorator:
     - image_service: ImageUploadServiceInterface
     - logger: Logger instance
-
-    Use:
-        - Dynamic dispatch based on routes defined via decorators.
-        - Automatic dependency injection for services.
     """
 
     image_service: ImageUploadServiceInterface
     logger: Logger
 
-    def do_GET(self):
-        """Handles GET requests and dispatches them based on route."""
-        self.logger.info(f"GET request received: {self.path}")
-        self.handle_request(self.routes_get)
-
-    def do_POST(self):
-        """Handles POST requests and dispatches them based on route."""
-        self.handle_request(self.routes_post)
-
-    def do_DELETE(self):
-        """Handles DELETE requests and dispatches them based on route."""
-        self.handle_request(self.routes_delete)
-
-    @route('GET', '/')
-    def handle_get_root(self):
-        """Handles healthcheck at GET /."""
-        self.logger.info("Healthcheck endpoint hit: /")
-        self.send_json_response(200, {"message": "Welcome to the Upload Server"})
-
     @route('GET', '/upload/')
     def handle_get_uploads(self):
-        """Returns list of uploaded images as JSON.
-
-        Query parameters:
-        page (int, optional): Page number (starting from 1). Default is 1.
-        per_page (int, optional): Number of items per page. Default is 10.
-        order (str, optional): Sort order for upload_time ("desc" or "asc"). Default is "desc".
-
-        Side effects:
-            - Reads image directory.
-            - Sends HTTP response or error.
-        """
+        """Returns list of uploaded images as JSON."""
         query_params = self.parse_query_params()
 
         try:
@@ -142,14 +108,7 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
 
     @route('POST', '/upload/')
     def handle_post_upload(self):
-        """Processes and saves an uploaded file.
-
-        Side effects:
-            - Parses multipart form data.
-            - Validates and saves uploaded file to disk.
-            - Saves file metadata to database.
-            - Sends response or error.
-        """
+        """Processes and saves an uploaded file."""
         content_type = self.headers.get("Content-Type", "")
         if "multipart/form-data" not in content_type:
             self.send_json_error(400, "Bad Request: Expected multipart/form-data")
@@ -188,13 +147,7 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
 
     @route('DELETE', '/upload/<filename>')
     def handle_delete_upload(self):
-        """Deletes a file by name from the upload directory and database.
-
-        Side effects:
-            - Deletes file from filesystem.
-            - Deletes record from database.
-            - Sends JSON response or error.
-        """
+        """Deletes a file by name from the upload directory and database."""
         filename = self.get_route_param("filename")
         self.logger.info(f"Delete request for filename: {filename}")
 
@@ -217,12 +170,7 @@ class UploadHandler(BaseHTTPRequestHandler, JsonResponseMixin, RouterMixin, Pagi
 
     @route('GET', '/upload/<filename>')
     def handle_get_upload_details(self):
-        """Returns detailed information about a specific image file.
-
-        Side effects:
-            - Queries database for file metadata.
-            - Sends JSON response with image details or error.
-        """
+        """Returns detailed information about a specific image file."""
         filename = self.get_route_param("filename")
         self.logger.info(f"Upload details request for filename: {filename}")
 

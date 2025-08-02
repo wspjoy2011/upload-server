@@ -3,8 +3,10 @@
 This module provides decorators that automatically register methods
 as route handlers in the class route dictionaries.
 """
+from http.server import BaseHTTPRequestHandler
+from typing import Callable, TypeVar, Type
 
-from typing import Callable
+T = TypeVar('T', bound=Type[BaseHTTPRequestHandler])
 
 
 def route(method: str, path: str) -> Callable:
@@ -40,7 +42,7 @@ def route(method: str, path: str) -> Callable:
     return decorator
 
 
-def register_routes(cls: type) -> type:
+def register_routes(cls: T) -> T:
     """Class decorator to automatically register all @route decorated methods.
 
     Scans the class for methods decorated with @route and adds them
@@ -59,16 +61,13 @@ def register_routes(cls: type) -> type:
         'PUT': 'routes_put'
     }
 
-    for method, attr_name in route_attrs.items():
-        if not hasattr(cls, attr_name):
-            setattr(cls, attr_name, {})
+    for attr_name in route_attrs.values():
+        setattr(cls, attr_name, {})
 
     for method_name in dir(cls):
         method_obj = getattr(cls, method_name)
 
-        if (hasattr(method_obj, '_route_method') and
-                hasattr(method_obj, '_route_path')):
-
+        if hasattr(method_obj, '_route_method') and hasattr(method_obj, '_route_path'):
             http_method = method_obj._route_method
             path = method_obj._route_path
 

@@ -62,11 +62,13 @@ class JsonResponseMixin:
         else:
             self.logger.warning(f"{command} {path} → {status_code}: {message}")
 
+        response_body = json.dumps({"detail": message}).encode()
+
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(response_body)))
         self.end_headers()
-        response = {"detail": message}
-        self.wfile.write(json.dumps(response).encode())
+        self.wfile.write(response_body)
 
     def send_json_response(self, status_code: int, data: Any) -> None:
         """Sends a JSON success response.
@@ -78,10 +80,13 @@ class JsonResponseMixin:
         Side effects:
             - Writes JSON response to the client.
         """
+        response_body = json.dumps(data).encode()
+
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(response_body)))
         self.end_headers()
-        self.wfile.write(json.dumps(data).encode())
+        self.wfile.write(response_body)
 
 
 class RouterMixin:

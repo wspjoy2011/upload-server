@@ -13,7 +13,9 @@ from multiprocessing import Process, current_process
 from typing import cast
 from http.server import HTTPServer
 
-from controllers.upload_controller import UploadHandler
+from controllers.main import CompositeController
+from controllers.upload import UploadController
+from controllers.healthcheck import HealthCheckController
 from decorators.di import setup_container
 from interfaces.protocols import RequestHandlerFactory
 from settings.config import config
@@ -22,6 +24,9 @@ from settings.logging_config import get_logger
 logger = get_logger(__name__)
 
 setup_container()
+
+CompositeController.register_controller(HealthCheckController)
+CompositeController.register_controller(UploadController)
 
 
 def run_server_on_port(port: int):
@@ -36,7 +41,17 @@ def run_server_on_port(port: int):
     """
     current_process().name = f"worker-{port}"
     logger.info(f"Starting server on http://0.0.0.0:{port}")
-    server = HTTPServer(("0.0.0.0", port), cast(RequestHandlerFactory, UploadHandler))
+
+    logger.info(f"Registered controllers: {CompositeController.get_registered_controllers()}")
+
+    all_routes = CompositeController.get_all_routes()
+    for method, routes in all_routes.items():
+        if routes:
+            logger.info(f"{method} routes:")
+            for path, handler in routes.items():
+                logger.info(f"  {path} -> {handler}")
+
+    server = HTTPServer(("0.0.0.0", port), cast(RequestHandlerFactory, CompositeController))
     server.serve_forever()
 
 
